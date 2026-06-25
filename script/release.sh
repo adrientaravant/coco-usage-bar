@@ -16,11 +16,13 @@ echo "Releasing Coco Usage Bar $APP_VERSION"
 RELEASE_DIR="$REL" APP_VERSION="$APP_VERSION" ./script/package_tester.sh
 
 mkdir -p "$REL"
-if [[ ! -f "$NOTES" ]]; then
+if [[ -n "${RELEASE_NOTES_FILE:-}" ]]; then
+  cp "$RELEASE_NOTES_FILE" "$NOTES"
+elif [[ ! -f "$NOTES" ]]; then
   cat >"$NOTES" <<EOF
 ## $APP_VERSION
 
-- Adds Sparkle auto-updates and a DMG installer.
+- Updates Coco Usage Bar.
 EOF
 fi
 
