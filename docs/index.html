@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CodexUsageBar</title>
+  <meta name="description" content="A tiny macOS menu bar app for Codex and Claude Code usage.">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #05060a;
+      --panel: #15151a;
+      --panel-strong: #1d1d24;
+      --text: #f4f4f6;
+      --muted: #aaaab4;
+      --quiet: #6d6d78;
+      --line: rgba(255, 255, 255, 0.12);
+      --accent: #8f86ff;
+      --accent-2: #55d6be;
+      --shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 18% 10%, rgba(85, 214, 190, 0.16), transparent 28rem),
+        radial-gradient(circle at 80% 0%, rgba(143, 134, 255, 0.18), transparent 30rem),
+        var(--bg);
+      color: var(--text);
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    .wrap {
+      width: min(1120px, calc(100% - 40px));
+      margin: 0 auto;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 26px 0;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 760;
+      letter-spacing: 0;
+    }
+
+    .brand img {
+      width: 24px;
+      height: 24px;
+    }
+
+    nav {
+      display: flex;
+      gap: 18px;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 650;
+    }
+
+    main {
+      padding: 58px 0 72px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 0.88fr) minmax(440px, 1.12fr);
+      gap: 56px;
+      align-items: center;
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 680px;
+      font-size: clamp(46px, 8vw, 86px);
+      line-height: 0.95;
+      letter-spacing: 0;
+    }
+
+    .lead {
+      margin: 24px 0 0;
+      max-width: 590px;
+      color: var(--muted);
+      font-size: 19px;
+      line-height: 1.55;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 34px;
+    }
+
+    .button {
+      display: inline-flex;
+      min-height: 48px;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      padding: 0 18px;
+      font-weight: 760;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.07);
+    }
+
+    .button.primary {
+      background: linear-gradient(135deg, var(--accent), #5f8dff);
+      border-color: transparent;
+      color: white;
+    }
+
+    .meta {
+      margin-top: 16px;
+      color: var(--quiet);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .product {
+      min-width: 0;
+    }
+
+    .bar {
+      width: fit-content;
+      margin: 0 auto -16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 7px 16px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 22px;
+      background: rgba(104, 101, 160, 0.76);
+      box-shadow: var(--shadow);
+      font-weight: 780;
+      font-size: 18px;
+      position: relative;
+      z-index: 2;
+    }
+
+    .bar img {
+      width: 18px;
+      height: 18px;
+    }
+
+    .dot {
+      color: rgba(255, 255, 255, 0.42);
+    }
+
+    .menu {
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 8px;
+      background: rgba(20, 20, 24, 0.94);
+      box-shadow: var(--shadow);
+      padding: 26px 28px 20px;
+    }
+
+    .section {
+      padding: 0 0 22px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .section + .section {
+      padding-top: 22px;
+    }
+
+    .provider {
+      display: grid;
+      grid-template-columns: minmax(150px, 1fr) 82px 92px;
+      gap: 18px;
+      align-items: center;
+      margin-bottom: 22px;
+    }
+
+    .provider-name {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 23px;
+      font-weight: 780;
+    }
+
+    .provider-name img {
+      width: 20px;
+      height: 20px;
+    }
+
+    .head {
+      color: var(--muted);
+      font-weight: 760;
+      text-align: right;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: minmax(150px, 1fr) 82px 92px;
+      gap: 18px;
+      align-items: center;
+      min-height: 44px;
+      font-size: 22px;
+      font-weight: 760;
+    }
+
+    .row .value,
+    .row .reset,
+    .cost {
+      color: var(--muted);
+      text-align: right;
+    }
+
+    .tokens {
+      grid-column: 2 / 4;
+      text-align: right;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding-top: 20px;
+      color: var(--muted);
+      font-size: 18px;
+      font-weight: 720;
+    }
+
+    .refresh {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text);
+    }
+
+    .refresh svg {
+      width: 19px;
+      height: 19px;
+    }
+
+    .notes {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 22px;
+      margin-top: 64px;
+    }
+
+    .note {
+      border-top: 1px solid var(--line);
+      padding-top: 18px;
+    }
+
+    .note h2 {
+      margin: 0 0 10px;
+      font-size: 17px;
+    }
+
+    .note p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    code {
+      color: #d6d2ff;
+    }
+
+    @media (max-width: 900px) {
+      .hero {
+        grid-template-columns: 1fr;
+        gap: 46px;
+      }
+
+      .product {
+        width: min(620px, 100%);
+      }
+
+      .notes {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 540px) {
+      .wrap {
+        width: min(100% - 24px, 1120px);
+      }
+
+      header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      nav {
+        flex-wrap: wrap;
+      }
+
+      main {
+        padding-top: 28px;
+      }
+
+      .menu {
+        padding: 22px 16px 16px;
+      }
+
+      .provider,
+      .row {
+        grid-template-columns: minmax(112px, 1fr) 62px 74px;
+        gap: 10px;
+        font-size: 18px;
+      }
+
+      .provider-name {
+        font-size: 20px;
+      }
+
+      .tokens {
+        font-size: 18px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <a class="brand" href="./" aria-label="CodexUsageBar home">
+        <img src="assets/codex-mark.png" alt="">
+        <span>CodexUsageBar</span>
+      </a>
+      <nav aria-label="Links">
+        <a href="https://github.com/adrientaravant/codex-usage-bar/releases/latest">Releases</a>
+        <a href="https://github.com/adrientaravant/codex-usage-bar">GitHub</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div>
+          <h1>Codex and Claude usage in your menu bar.</h1>
+          <p class="lead">A tiny native macOS app for checking 5-hour and weekly limit usage, plus 30-day token totals, without opening another dashboard.</p>
+          <div class="actions">
+            <a class="button primary" href="https://github.com/adrientaravant/codex-usage-bar/releases/latest/download/CodexUsageBar.zip">Download for macOS</a>
+            <a class="button" href="https://github.com/adrientaravant/codex-usage-bar">View source</a>
+          </div>
+          <p class="meta">macOS 14+. The current public zip is unsigned/not notarized, so macOS may ask you to approve it the first time.</p>
+        </div>
+
+        <div class="product" aria-label="CodexUsageBar preview">
+          <div class="bar">
+            <img src="assets/codex-mark.png" alt="">
+            <span>37%</span>
+            <span class="dot">·</span>
+            <img src="assets/claude-mark.png" alt="">
+            <span>21%</span>
+          </div>
+          <div class="menu">
+            <div class="section">
+              <div class="provider">
+                <div class="provider-name"><img src="assets/codex-mark.png" alt="">Codex</div>
+                <div class="head">Used</div>
+                <div class="head">Reset</div>
+              </div>
+              <div class="row"><div>5h</div><div class="value">37%</div><div class="reset">16:51</div></div>
+              <div class="row"><div>Weekly</div><div class="value">93%</div><div class="reset">2 Jul</div></div>
+              <div class="row"><div>Last 30 days</div><div class="tokens">985M tokens</div></div>
+            </div>
+            <div class="section">
+              <div class="provider">
+                <div class="provider-name"><img src="assets/claude-mark.png" alt="">Claude Code</div>
+                <div class="head">Used</div>
+                <div class="head">Reset</div>
+              </div>
+              <div class="row"><div>5h</div><div class="value">1%</div><div class="reset">17:59</div></div>
+              <div class="row"><div>Weekly</div><div class="value">21%</div><div class="reset">27 Jun</div></div>
+              <div class="row"><div>Last 30 days</div><div class="tokens">3.5B tokens</div></div>
+            </div>
+            <div class="footer">
+              <span>Updated 16:46</span>
+              <span class="refresh">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M21 12a9 9 0 1 1-2.64-6.36" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                  <path d="M21 4v6h-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                Refresh
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="notes">
+        <div class="note">
+          <h2>Local first</h2>
+          <p>Reads Codex and Claude Code JSONL logs locally. Claude limits use your existing Claude Code OAuth credentials from Keychain.</p>
+        </div>
+        <div class="note">
+          <h2>Minimal by design</h2>
+          <p>No webview, no analytics, no server, no account system. The app caches a small snapshot and refreshes in the background.</p>
+        </div>
+        <div class="note">
+          <h2>Install from source</h2>
+          <p>Clone the repo and run <code>./script/install.sh --login</code> if you prefer to build the exact binary on your Mac.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>
