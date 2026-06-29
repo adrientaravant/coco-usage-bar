@@ -947,13 +947,15 @@ private final class MenuCostRowView: NSView {
 
     override var isFlipped: Bool { true }
 
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        NSColor.separatorColor.withAlphaComponent(0.35).setStroke()
-        let path = NSBezierPath()
-        path.move(to: NSPoint(x: MenuLayout.horizontalPadding, y: 0.5))
-        path.line(to: NSPoint(x: bounds.width - MenuLayout.horizontalPadding, y: 0.5))
-        path.stroke()
+    required init?(coder: NSCoder) {
+        nil
+    }
+}
+
+/// An empty view used to add breathing room between sections without a divider line.
+private final class MenuSpacerView: NSView {
+    init(height: CGFloat) {
+        super.init(frame: NSRect(x: 0, y: 0, width: MenuLayout.width, height: height))
     }
 
     required init?(coder: NSCoder) {
@@ -961,143 +963,142 @@ private final class MenuCostRowView: NSView {
     }
 }
 
+private enum FooterLayout {
+    static let captionHeight: CGFloat = 30
+    static let rowHeight: CGFloat = 34
+}
+
 private final class MenuFooterView: NSView {
     init(updatedText: String, target: AnyObject, refreshAction: Selector, feedbackAction: Selector) {
-        super.init(frame: NSRect(x: 0, y: 0, width: MenuLayout.width, height: 76))
+        let rows: [MenuActionRow] = [
+            MenuActionRow(title: "Refresh", symbolName: "arrow.clockwise", target: target, action: refreshAction),
+            MenuActionRow(
+                title: "Check for Updates",
+                symbolName: "arrow.down.circle",
+                target: UpdaterController.shared,
+                action: #selector(UpdaterController.checkForUpdates(_:))
+            ),
+            MenuActionRow(title: "Send Feedback", symbolName: "bubble.left", target: target, action: feedbackAction),
+            MenuActionRow(
+                title: "Quit",
+                symbolName: "power",
+                shortcut: "⌘Q",
+                target: NSApp,
+                action: #selector(NSApplication.terminate(_:))
+            )
+        ]
+        let totalHeight = FooterLayout.captionHeight + CGFloat(rows.count) * FooterLayout.rowHeight
+        super.init(frame: NSRect(x: 0, y: 0, width: MenuLayout.width, height: totalHeight))
         wantsLayer = true
 
-        let label = NSTextField(labelWithString: updatedText)
-        label.font = .systemFont(ofSize: 12, weight: .regular)
-        label.textColor = .tertiaryLabelColor
-        label.translatesAutoresizingMaskIntoConstraints = false
+        let caption = NSTextField(labelWithString: updatedText)
+        caption.font = .systemFont(ofSize: 12, weight: .regular)
+        caption.textColor = .tertiaryLabelColor
+        caption.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(caption)
 
-        let refreshButton = FooterButton(
-            title: "Refresh",
-            symbolName: "arrow.clockwise",
-            target: target,
-            action: refreshAction
-        )
-        refreshButton.font = .systemFont(ofSize: 12.5, weight: .semibold)
-
-        let updateButton = FooterButton(
-            title: "Updates",
-            symbolName: "sparkles",
-            target: UpdaterController.shared,
-            action: #selector(UpdaterController.checkForUpdates(_:))
-        )
-        let feedbackButton = FooterButton(
-            title: "Feedback",
-            symbolName: "envelope",
-            target: target,
-            action: feedbackAction
-        )
-        let quitButton = FooterButton(
-            title: "Quit",
-            symbolName: "xmark.square",
-            target: NSApp,
-            action: #selector(NSApplication.terminate(_:)),
-            trailingText: "⌘Q"
-        )
-
-        let actions = NSStackView(views: [updateButton, feedbackButton, quitButton])
-        actions.orientation = .horizontal
-        actions.spacing = 6
-        actions.distribution = .fillEqually
-        actions.translatesAutoresizingMaskIntoConstraints = false
-
-        addSubview(label)
-        addSubview(refreshButton)
-        addSubview(actions)
+        let stack = NSStackView(views: rows)
+        stack.orientation = .vertical
+        stack.spacing = 0
+        stack.alignment = .leading
+        stack.distribution = .fill
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
 
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: MenuLayout.horizontalPadding),
-            label.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            caption.leadingAnchor.constraint(equalTo: leadingAnchor, constant: MenuLayout.horizontalPadding),
+            caption.topAnchor.constraint(equalTo: topAnchor, constant: 7),
 
-            refreshButton.leadingAnchor.constraint(greaterThanOrEqualTo: label.trailingAnchor, constant: 18),
-            refreshButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -MenuLayout.horizontalPadding),
-            refreshButton.centerYAnchor.constraint(equalTo: label.centerYAnchor),
-
-            actions.leadingAnchor.constraint(equalTo: leadingAnchor, constant: MenuLayout.horizontalPadding),
-            actions.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -MenuLayout.horizontalPadding),
-            actions.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 9),
-            actions.heightAnchor.constraint(equalToConstant: 30)
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: FooterLayout.captionHeight),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
     }
 
     override var isFlipped: Bool { true }
 
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        NSColor.separatorColor.withAlphaComponent(0.35).setStroke()
-        let path = NSBezierPath()
-        path.move(to: NSPoint(x: 0, y: 0.5))
-        path.line(to: NSPoint(x: bounds.width, y: 0.5))
-        path.stroke()
-    }
-
     required init?(coder: NSCoder) {
         nil
     }
 }
 
-private final class FooterButton: NSButton {
-    private let trailingText: String?
-
-    init(
-        title: String,
-        symbolName: String,
-        target: AnyObject,
-        action: Selector,
-        trailingText: String? = nil
-    ) {
-        self.trailingText = trailingText
-        super.init(frame: .zero)
-        self.title = title
+/// A full-width menu row: leading icon, label, optional trailing shortcut.
+/// No persistent background; the whole row softly highlights on hover.
+private final class MenuActionRow: NSButton {
+    init(title: String, symbolName: String, shortcut: String? = nil, target: AnyObject?, action: Selector?) {
+        super.init(frame: NSRect(x: 0, y: 0, width: MenuLayout.width, height: FooterLayout.rowHeight))
         self.target = target
         self.action = action
-        image = NSImage(systemSymbolName: symbolName, accessibilityDescription: title)
-        imagePosition = .imageLeading
-        imageScaling = .scaleProportionallyDown
+        self.title = ""
         isBordered = false
         bezelStyle = .regularSquare
-        font = .systemFont(ofSize: 12.5, weight: .medium)
-        contentTintColor = .secondaryLabelColor
-        alignment = .center
-        translatesAutoresizingMaskIntoConstraints = false
         setButtonType(.momentaryChange)
+        translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
-        layer?.cornerRadius = 7
-        layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.001).cgColor
-        attributedTitle = makeTitle(title, trailingText: trailingText)
+
+        let icon = NSImageView()
+        let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+        icon.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: title)?
+            .withSymbolConfiguration(config)
+        icon.contentTintColor = .secondaryLabelColor
+        icon.imageScaling = .scaleProportionallyDown
+        icon.translatesAutoresizingMaskIntoConstraints = false
+
+        let label = NSTextField(labelWithString: title)
+        label.font = .systemFont(ofSize: 13.5, weight: .regular)
+        label.textColor = .labelColor
+        label.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(icon)
+        addSubview(label)
+
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(equalToConstant: MenuLayout.width),
+            heightAnchor.constraint(equalToConstant: FooterLayout.rowHeight),
+
+            icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: MenuLayout.horizontalPadding),
+            icon.centerYAnchor.constraint(equalTo: centerYAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 16),
+            icon.heightAnchor.constraint(equalToConstant: 16),
+
+            label.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 10),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
+
+        if let shortcut {
+            let keys = NSTextField(labelWithString: shortcut)
+            keys.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+            keys.textColor = .tertiaryLabelColor
+            keys.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(keys)
+            NSLayoutConstraint.activate([
+                keys.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -MenuLayout.horizontalPadding),
+                keys.centerYAnchor.constraint(equalTo: centerYAnchor)
+            ])
+        }
     }
+
+    override var isFlipped: Bool { true }
 
     override func updateLayer() {
         super.updateLayer()
         layer?.backgroundColor = isHighlighted
-            ? NSColor.controlAccentColor.withAlphaComponent(0.14).cgColor
-            : NSColor.separatorColor.withAlphaComponent(0.16).cgColor
+            ? NSColor.labelColor.withAlphaComponent(0.07).cgColor
+            : NSColor.clear.cgColor
     }
 
     override func resetCursorRects() {
         addCursorRect(bounds, cursor: .pointingHand)
     }
 
-    required init?(coder: NSCoder) {
-        nil
+    override func mouseUp(with event: NSEvent) {
+        super.mouseUp(with: event)
+        enclosingMenuItem?.menu?.cancelTracking()
     }
 
-    private func makeTitle(_ title: String, trailingText: String?) -> NSAttributedString {
-        let result = NSMutableAttributedString(string: title, attributes: [
-            .font: NSFont.systemFont(ofSize: 12.5, weight: .medium),
-            .foregroundColor: NSColor.secondaryLabelColor
-        ])
-        if let trailingText {
-            result.append(NSAttributedString(string: "  \(trailingText)", attributes: [
-                .font: NSFont.monospacedDigitSystemFont(ofSize: 11.5, weight: .regular),
-                .foregroundColor: NSColor.tertiaryLabelColor
-            ]))
-        }
-        return result
+    required init?(coder: NSCoder) {
+        nil
     }
 }
 
@@ -1254,7 +1255,7 @@ Coco Usage Bar \(version) (\(build))
         }
 
         if codexVisible && claudeVisible {
-            menu.addItem(.separator())
+            addView(MenuSpacerView(height: 10), to: menu)
         }
 
         if claudeVisible {
@@ -1273,7 +1274,7 @@ Coco Usage Bar \(version) (\(build))
             addView(MenuCostRowView(label: "No local usage yet", value: "Refresh after a session"), to: menu)
         }
 
-        menu.addItem(.separator())
+        addView(MenuSpacerView(height: 6), to: menu)
         addView(
             MenuFooterView(
                 updatedText: "Updated \(timeOnly(snapshot.generatedAt))",
