@@ -78,16 +78,24 @@
       flex: none;
       height: 34px;
       display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 18px;
-      padding: 0 16px;
+      align-items: stretch;
+      padding: 0;
       border-bottom: 1px solid oklch(100% 0 0 / 0.07);
       background: var(--bar);
       -webkit-backdrop-filter: blur(22px) saturate(160%);
       backdrop-filter: blur(22px) saturate(160%);
       box-shadow: 0 1px 0 oklch(100% 0 0 / 0.04) inset;
       font-size: 13px;
+    }
+
+    /* keep the bar full-bleed but align its items with the content frame below */
+    .menubar-inner {
+      width: min(1200px, 100% - 48px);
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
     }
 
     .mb-left,
@@ -279,8 +287,8 @@
     .meta b { color: var(--quiet); font-weight: 700; }
     .meta .sep { width: 3px; height: 3px; border-radius: 50%; background: oklch(100% 0 0 / 0.22); }
 
-    /* ── right: the popover, hanging from the pill ── */
-    .preview { align-self: start; justify-self: end; width: min(360px, 100%); }
+    /* ── right: the popover, hanging from the pill (offset past the clock) ── */
+    .preview { align-self: start; justify-self: end; width: min(360px, 100%); margin-right: 74px; }
 
     .popover {
       position: relative;
@@ -299,7 +307,7 @@
       content: "";
       position: absolute;
       top: -6px;
-      right: 26px;
+      right: 54px;
       width: 12px; height: 12px;
       background: var(--panel);
       border-left: 1px solid var(--line-2);
@@ -509,7 +517,7 @@
         padding: 8px 0 4px;
       }
       .copy { align-self: stretch; }
-      .preview { align-self: stretch; justify-self: stretch; width: min(420px, 100%); }
+      .preview { align-self: stretch; justify-self: stretch; width: min(420px, 100%); margin-right: 0; }
       .popover::before { display: none; }
       .band { grid-template-columns: 1fr; gap: 16px; }
       .band-item p { display: block; }
@@ -530,6 +538,7 @@
 <body>
   <!-- faux macOS menu bar: nav lives here as menu items; the live Coco pill anchors the popover -->
   <div class="menubar">
+   <div class="menubar-inner">
     <div class="mb-left">
       <a class="mb-brand" href="https://github.com/adrientaravant/coco-usage-bar">
         <img src="assets/logo.webp" width="15" height="15" alt="">Coco
@@ -550,6 +559,7 @@
       </span>
       <span class="mb-clock">Tue 16:46</span>
     </div>
+   </div>
   </div>
 
   <div class="stage">
