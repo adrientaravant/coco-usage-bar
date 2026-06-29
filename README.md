@@ -1,4 +1,5 @@
-<img width="250" height="250" alt="ChatGPT Image Jun 25, 2026, 06_16_51 PM" src="https://github.com/user-attachments/assets/61976585-32c7-443f-a4b3-d77aaacda3b6" />
+<img width="250" height="250" alt="ChatGPT Image Jun 29, 2026, 03_17_05 PM" src="https://github.com/user-attachments/assets/6f266637-a0d2-40eb-b105-4d75630a8e63" />
+
 
 
 # Coco Usage Bar
