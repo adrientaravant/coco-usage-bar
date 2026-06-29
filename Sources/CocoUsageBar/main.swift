@@ -779,13 +779,15 @@ enum SnapshotCache {
 }
 
 private enum MenuLayout {
-    static let width: CGFloat = 380
-    static let horizontalPadding: CGFloat = 18
+    static let width: CGFloat = 360
+    static let horizontalPadding: CGFloat = 14
+    static let valueLeading: CGFloat = 94
+    static let railLeading: CGFloat = 98
 }
 
 private final class MenuHeaderView: NSView {
-    init(iconName: String, title: String) {
-        super.init(frame: NSRect(x: 0, y: 0, width: MenuLayout.width, height: 42))
+    init(iconName: String, title: String, detail: String) {
+        super.init(frame: NSRect(x: 0, y: 0, width: MenuLayout.width, height: 34))
 
         let icon = NSImageView()
         icon.image = providerImage(named: iconName)
@@ -793,26 +795,19 @@ private final class MenuHeaderView: NSView {
         icon.translatesAutoresizingMaskIntoConstraints = false
 
         let titleLabel = NSTextField(labelWithString: title)
-        titleLabel.font = .boldSystemFont(ofSize: 14)
+        titleLabel.font = .systemFont(ofSize: 14, weight: .semibold)
         titleLabel.textColor = .labelColor
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        let used = NSTextField(labelWithString: "Used")
-        used.font = .systemFont(ofSize: 12, weight: .semibold)
-        used.textColor = .secondaryLabelColor
-        used.alignment = .right
-        used.translatesAutoresizingMaskIntoConstraints = false
-
-        let reset = NSTextField(labelWithString: "Reset")
-        reset.font = .systemFont(ofSize: 12, weight: .semibold)
-        reset.textColor = .secondaryLabelColor
-        reset.alignment = .right
-        reset.translatesAutoresizingMaskIntoConstraints = false
+        let detailLabel = NSTextField(labelWithString: detail)
+        detailLabel.font = .systemFont(ofSize: 12, weight: .regular)
+        detailLabel.textColor = .tertiaryLabelColor
+        detailLabel.alignment = .right
+        detailLabel.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(icon)
         addSubview(titleLabel)
-        addSubview(used)
-        addSubview(reset)
+        addSubview(detailLabel)
 
         NSLayoutConstraint.activate([
             icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: MenuLayout.horizontalPadding),
@@ -822,15 +817,10 @@ private final class MenuHeaderView: NSView {
 
             titleLabel.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 8),
             titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: used.leadingAnchor, constant: -12),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: detailLabel.leadingAnchor, constant: -12),
 
-            reset.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -MenuLayout.horizontalPadding),
-            reset.centerYAnchor.constraint(equalTo: centerYAnchor),
-            reset.widthAnchor.constraint(greaterThanOrEqualToConstant: 78),
-
-            used.trailingAnchor.constraint(equalTo: reset.leadingAnchor, constant: -14),
-            used.centerYAnchor.constraint(equalTo: centerYAnchor),
-            used.widthAnchor.constraint(greaterThanOrEqualToConstant: 46)
+            detailLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -MenuLayout.horizontalPadding),
+            detailLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
         ])
     }
 
@@ -839,53 +829,84 @@ private final class MenuHeaderView: NSView {
     }
 }
 
-private final class MenuMetricRowView: NSView {
-    init(label: String, value: String, detail: String? = nil, emphasized: Bool = false) {
-        super.init(frame: NSRect(x: 0, y: 0, width: MenuLayout.width, height: 32))
+private final class MenuLimitRowView: NSView {
+    private let usedPercent: Double?
+    private let pacePercent: Double?
+    private let providerColor: NSColor
+
+    init(
+        label: String,
+        value: NSAttributedString,
+        detail: NSAttributedString,
+        usedPercent: Double?,
+        pacePercent: Double?,
+        providerColor: NSColor
+    ) {
+        self.usedPercent = usedPercent
+        self.pacePercent = pacePercent
+        self.providerColor = providerColor
+        super.init(frame: NSRect(x: 0, y: 0, width: MenuLayout.width, height: usedPercent == nil ? 30 : 42))
+        wantsLayer = true
 
         let labelView = NSTextField(labelWithString: label)
-        labelView.font = .systemFont(ofSize: 13, weight: emphasized ? .semibold : .medium)
+        labelView.font = .systemFont(ofSize: 13, weight: .semibold)
         labelView.textColor = .labelColor
         labelView.translatesAutoresizingMaskIntoConstraints = false
 
-        let valueView = NSTextField(labelWithString: value)
-        valueView.font = .monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
-        valueView.textColor = .labelColor
+        let valueView = NSTextField(labelWithAttributedString: value)
         valueView.alignment = .right
         valueView.translatesAutoresizingMaskIntoConstraints = false
 
+        let detailView = NSTextField(labelWithAttributedString: detail)
+        detailView.alignment = .right
+        detailView.lineBreakMode = .byTruncatingTail
+        detailView.translatesAutoresizingMaskIntoConstraints = false
+
         addSubview(labelView)
         addSubview(valueView)
-
-        var trailingAnchorForValue = trailingAnchor
-        var trailingConstant: CGFloat = -MenuLayout.horizontalPadding
-
-        if let detail, !detail.isEmpty {
-            let detailView = NSTextField(labelWithString: detail)
-            detailView.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
-            detailView.textColor = .secondaryLabelColor
-            detailView.alignment = .right
-            detailView.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(detailView)
-            trailingAnchorForValue = detailView.leadingAnchor
-            trailingConstant = -14
-
-            NSLayoutConstraint.activate([
-                detailView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -MenuLayout.horizontalPadding),
-                detailView.centerYAnchor.constraint(equalTo: centerYAnchor),
-                detailView.widthAnchor.constraint(greaterThanOrEqualToConstant: 78)
-            ])
-        }
+        addSubview(detailView)
 
         NSLayoutConstraint.activate([
             labelView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: MenuLayout.horizontalPadding),
-            labelView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            labelView.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            labelView.widthAnchor.constraint(equalToConstant: 60),
 
-            valueView.leadingAnchor.constraint(greaterThanOrEqualTo: labelView.trailingAnchor, constant: 12),
-            valueView.trailingAnchor.constraint(equalTo: trailingAnchorForValue, constant: trailingConstant),
-            valueView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            valueView.widthAnchor.constraint(greaterThanOrEqualToConstant: 46)
+            valueView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: MenuLayout.valueLeading),
+            valueView.topAnchor.constraint(equalTo: labelView.topAnchor),
+            valueView.widthAnchor.constraint(equalToConstant: 72),
+
+            detailView.leadingAnchor.constraint(greaterThanOrEqualTo: valueView.trailingAnchor, constant: 8),
+            detailView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -MenuLayout.horizontalPadding),
+            detailView.topAnchor.constraint(equalTo: labelView.topAnchor)
         ])
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard let usedPercent else { return }
+
+        let railX = MenuLayout.railLeading
+        let railY: CGFloat = 29
+        let railHeight: CGFloat = 4
+        let railWidth = bounds.width - railX - MenuLayout.horizontalPadding
+        let railRect = NSRect(x: railX, y: railY, width: railWidth, height: railHeight)
+        NSColor.separatorColor.withAlphaComponent(0.38).setFill()
+        NSBezierPath(roundedRect: railRect, xRadius: railHeight / 2, yRadius: railHeight / 2).fill()
+
+        let usedRatio = max(0, min(usedPercent / 100, 1))
+        let fillWidth = usedRatio == 0 ? 3 : max(3, railWidth * usedRatio)
+        let fillRect = NSRect(x: railX, y: railY, width: fillWidth, height: railHeight)
+        providerColor.withAlphaComponent(0.9).setFill()
+        NSBezierPath(roundedRect: fillRect, xRadius: railHeight / 2, yRadius: railHeight / 2).fill()
+
+        guard let pacePercent else { return }
+        let paceRatio = max(0, min(pacePercent / 100, 1))
+        let tickX = railX + railWidth * paceRatio
+        let tickRect = NSRect(x: tickX - 1, y: railY - 3, width: 2, height: 10)
+        NSColor.labelColor.withAlphaComponent(0.62).setFill()
+        NSBezierPath(roundedRect: tickRect, xRadius: 1, yRadius: 1).fill()
     }
 
     required init?(coder: NSCoder) {
@@ -895,7 +916,8 @@ private final class MenuMetricRowView: NSView {
 
 private final class MenuCostRowView: NSView {
     init(label: String, value: String) {
-        super.init(frame: NSRect(x: 0, y: 0, width: MenuLayout.width, height: 36))
+        super.init(frame: NSRect(x: 0, y: 0, width: MenuLayout.width, height: 34))
+        wantsLayer = true
 
         let labelView = NSTextField(labelWithString: label)
         labelView.font = .systemFont(ofSize: 13, weight: .semibold)
@@ -903,7 +925,7 @@ private final class MenuCostRowView: NSView {
         labelView.translatesAutoresizingMaskIntoConstraints = false
 
         let valueView = NSTextField(labelWithString: value)
-        valueView.font = .monospacedDigitSystemFont(ofSize: 12.5, weight: .medium)
+        valueView.font = .monospacedDigitSystemFont(ofSize: 12.5, weight: .regular)
         valueView.textColor = .secondaryLabelColor
         valueView.alignment = .right
         valueView.lineBreakMode = .byTruncatingHead
@@ -923,6 +945,17 @@ private final class MenuCostRowView: NSView {
         ])
     }
 
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        NSColor.separatorColor.withAlphaComponent(0.35).setStroke()
+        let path = NSBezierPath()
+        path.move(to: NSPoint(x: MenuLayout.horizontalPadding, y: 0.5))
+        path.line(to: NSPoint(x: bounds.width - MenuLayout.horizontalPadding, y: 0.5))
+        path.stroke()
+    }
+
     required init?(coder: NSCoder) {
         nil
     }
@@ -933,8 +966,8 @@ private final class MenuFooterView: NSView {
         super.init(frame: NSRect(x: 0, y: 0, width: MenuLayout.width, height: 36))
 
         let label = NSTextField(labelWithString: updatedText)
-        label.font = .systemFont(ofSize: 12, weight: .medium)
-        label.textColor = .secondaryLabelColor
+        label.font = .systemFont(ofSize: 12, weight: .regular)
+        label.textColor = .tertiaryLabelColor
         label.translatesAutoresizingMaskIntoConstraints = false
 
         let refreshButton = NSButton(title: "Refresh", target: target, action: refreshAction)
@@ -1110,6 +1143,7 @@ Coco Usage Bar \(version) (\(build))
                 limits: snapshot.codexLimits,
                 usage: snapshot.codexUsage,
                 missingLimitDetail: "n/a",
+                referenceDate: snapshot.generatedAt,
                 to: menu
             )
         }
@@ -1125,6 +1159,7 @@ Coco Usage Bar \(version) (\(build))
                 limits: snapshot.claudeLimits,
                 usage: snapshot.claudeUsage,
                 missingLimitDetail: "needs account",
+                referenceDate: snapshot.generatedAt,
                 to: menu
             )
         }
@@ -1176,34 +1211,126 @@ Coco Usage Bar \(version) (\(build))
         limits: CodexRateLimits?,
         usage: ProviderUsage,
         missingLimitDetail: String,
+        referenceDate: Date,
         to menu: NSMenu
     ) {
-        addView(MenuHeaderView(iconName: iconName, title: title), to: menu)
-        addView(rateView(label: "5h", window: limits?.primary, missingDetail: missingLimitDetail), to: menu)
-        addView(rateView(label: "Weekly", window: limits?.secondary, missingDetail: missingLimitDetail), to: menu)
+        let headerDetail = limits == nil ? "local logs" : (limits?.planType ?? "limits")
+        let providerColor = providerAccentColor(iconName: iconName)
+        addView(MenuHeaderView(iconName: iconName, title: title, detail: headerDetail), to: menu)
+        addView(
+            rateView(
+                label: "5h",
+                window: limits?.primary,
+                missingDetail: missingLimitDetail,
+                providerColor: providerColor,
+                referenceDate: referenceDate
+            ),
+            to: menu
+        )
+        addView(
+            rateView(
+                label: "Weekly",
+                window: limits?.secondary,
+                missingDetail: missingLimitDetail,
+                providerColor: providerColor,
+                referenceDate: referenceDate
+            ),
+            to: menu
+        )
 
         let thirtyDays = usage.thirtyDays
         if thirtyDays.totalTokens > 0 {
-            let value = "\(compactTokens(thirtyDays.totalTokens)) tokens"
-            addView(MenuCostRowView(label: "Last 30 days", value: value), to: menu)
+            addView(MenuCostRowView(label: "30d tokens", value: compactTokens(thirtyDays.totalTokens)), to: menu)
         } else {
-            addView(MenuCostRowView(label: "Last 30 days", value: "No local tokens"), to: menu)
+            addView(MenuCostRowView(label: "30d tokens", value: "No local tokens"), to: menu)
         }
     }
 
-    private func rateView(label: String, window: RateWindow?, missingDetail: String) -> NSView {
+    private func rateView(
+        label: String,
+        window: RateWindow?,
+        missingDetail: String,
+        providerColor: NSColor,
+        referenceDate: Date
+    ) -> NSView {
         guard let window, let percent = window.usedPercent else {
-            return MenuMetricRowView(label: label, value: "n/a", detail: missingDetail)
+            return MenuLimitRowView(
+                label: label,
+                value: attributedValue(primary: "n/a"),
+                detail: attributedDetail(missingDetail),
+                usedPercent: nil,
+                pacePercent: nil,
+                providerColor: providerColor
+            )
         }
 
-        let detail = window.resetsAt.map(resetLabel)
-        return MenuMetricRowView(label: label, value: formatPercent(percent), detail: detail, emphasized: true)
+        let detail = window.resetsAt.map { attributedResetDetail($0) } ?? attributedDetail("reset n/a")
+        return MenuLimitRowView(
+            label: label,
+            value: attributedValue(primary: formatPercent(percent), suffix: " used"),
+            detail: detail,
+            usedPercent: percent,
+            pacePercent: pacePercent(for: window, at: referenceDate),
+            providerColor: providerColor
+        )
     }
 
     private func addView(_ view: NSView, to menu: NSMenu) {
         let item = NSMenuItem()
         item.view = view
         menu.addItem(item)
+    }
+
+    private func providerAccentColor(iconName: String) -> NSColor {
+        if iconName == "claude-mark" {
+            return NSColor(calibratedRed: 0.9, green: 0.58, blue: 0.34, alpha: 1)
+        }
+        return NSColor(calibratedRed: 0.42, green: 0.84, blue: 0.78, alpha: 1)
+    }
+
+    private func attributedValue(primary: String, suffix: String? = nil) -> NSAttributedString {
+        let result = NSMutableAttributedString(string: primary, attributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 14, weight: .semibold),
+            .foregroundColor: NSColor.labelColor
+        ])
+        if let suffix {
+            result.append(NSAttributedString(string: suffix, attributes: [
+                .font: NSFont.systemFont(ofSize: 12.5, weight: .regular),
+                .foregroundColor: NSColor.secondaryLabelColor
+            ]))
+        }
+        return result
+    }
+
+    private func attributedDetail(_ value: String) -> NSAttributedString {
+        NSAttributedString(string: value, attributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 12.5, weight: .regular),
+            .foregroundColor: NSColor.secondaryLabelColor
+        ])
+    }
+
+    private func attributedResetDetail(_ date: Date) -> NSAttributedString {
+        let result = NSMutableAttributedString(string: "reset ", attributes: [
+            .font: NSFont.systemFont(ofSize: 12, weight: .regular),
+            .foregroundColor: NSColor.tertiaryLabelColor
+        ])
+        result.append(NSAttributedString(string: resetLabel(date), attributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 12.5, weight: .regular),
+            .foregroundColor: NSColor.secondaryLabelColor
+        ]))
+        return result
+    }
+
+    private func pacePercent(for window: RateWindow, at date: Date) -> Double? {
+        guard let resetsAt = window.resetsAt,
+              let windowMinutes = window.windowMinutes,
+              windowMinutes > 0
+        else { return nil }
+
+        let duration = TimeInterval(windowMinutes * 60)
+        let startsAt = resetsAt.addingTimeInterval(-duration)
+        let elapsed = date.timeIntervalSince(startsAt)
+        return max(0, min(elapsed / duration * 100, 100))
     }
 
     private func statusMetric(limits: CodexRateLimits?, usage: ProviderUsage, allowTokenFallback: Bool) -> String? {
