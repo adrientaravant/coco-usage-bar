@@ -1758,7 +1758,7 @@ private final class UsageMenuContext: NSObject {
 }
 
 @MainActor
-final class UsageBarController: NSObject, NSApplicationDelegate {
+final class UsageBarController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private var timer: Timer?
     private var latestSnapshot: UsageSnapshot?
@@ -1779,7 +1779,10 @@ final class UsageBarController: NSObject, NSApplicationDelegate {
         }
         refreshInBackground()
         timer = Timer.scheduledTimer(withTimeInterval: 5 * 60, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refreshInBackground() }
+            Task { @MainActor in
+                self?.refreshInBackground()
+                UpdaterController.shared.refreshUpdateInformationIfStale()
+            }
         }
     }
 
@@ -1797,6 +1800,10 @@ final class UsageBarController: NSObject, NSApplicationDelegate {
     @objc private func updaterStateDidChange() {
         guard let latestSnapshot else { return }
         statusItem.menu = menu(for: latestSnapshot)
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        UpdaterController.shared.refreshUpdateInformationIfStale(maxAge: 2 * 60)
     }
 
     @objc private func sendFeedbackFromMenu() {
@@ -2064,6 +2071,7 @@ Coco Usage Bar \(version) (\(build))
 
     private func menu(for snapshot: UsageSnapshot) -> NSMenu {
         let menu = NSMenu()
+        menu.delegate = self
         menu.autoenablesItems = false
         menu.minimumWidth = MenuLayout.width
 

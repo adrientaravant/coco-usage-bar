@@ -9,6 +9,7 @@ final class UpdaterController: NSObject, SPUUpdaterDelegate {
     private var controller: SPUStandardUpdaterController?
     private var availableVersion: String?
     private var isChecking = false
+    private var lastInformationCheckAt: Date?
 
     private override init() {
         super.init()
@@ -24,7 +25,7 @@ final class UpdaterController: NSObject, SPUUpdaterDelegate {
         controller.startUpdater()
         self.controller = controller
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
-            self?.checkForUpdateInformation()
+            self?.refreshUpdateInformationIfStale(maxAge: 0)
         }
     }
 
@@ -44,11 +45,21 @@ final class UpdaterController: NSObject, SPUUpdaterDelegate {
 
     @objc func checkForUpdates(_ sender: Any?) {
         setChecking(true)
+        lastInformationCheckAt = Date()
         controller?.checkForUpdates(sender)
+    }
+
+    func refreshUpdateInformationIfStale(maxAge: TimeInterval = 5 * 60) {
+        guard availableVersion == nil, !isChecking else { return }
+        if let lastInformationCheckAt, Date().timeIntervalSince(lastInformationCheckAt) < maxAge {
+            return
+        }
+        checkForUpdateInformation()
     }
 
     private func checkForUpdateInformation() {
         guard let updater = controller?.updater, updater.canCheckForUpdates else { return }
+        lastInformationCheckAt = Date()
         setChecking(true)
         updater.checkForUpdateInformation()
     }
