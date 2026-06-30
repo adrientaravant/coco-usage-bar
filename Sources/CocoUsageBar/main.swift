@@ -1489,6 +1489,93 @@ private final class MenuCostRowView: NSView {
     }
 }
 
+private enum DetailMenuLayout {
+    static let width: CGFloat = 460
+    static let horizontalPadding: CGFloat = 16
+    static let labelWidth: CGFloat = 128
+    static let rowHeight: CGFloat = 28
+}
+
+private final class DetailTitleRowView: NSView {
+    init(title: String) {
+        super.init(frame: NSRect(x: 0, y: 0, width: DetailMenuLayout.width, height: 34))
+
+        let label = NSTextField(labelWithString: title)
+        label.font = .systemFont(ofSize: 13.5, weight: .semibold)
+        label.textColor = .labelColor
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: DetailMenuLayout.horizontalPadding),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -DetailMenuLayout.horizontalPadding),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+}
+
+private final class DetailRowView: NSView {
+    init(label: String, value: String) {
+        super.init(frame: NSRect(x: 0, y: 0, width: DetailMenuLayout.width, height: DetailMenuLayout.rowHeight))
+
+        let labelView = NSTextField(labelWithString: label)
+        labelView.font = .systemFont(ofSize: 12.5, weight: .medium)
+        labelView.textColor = .secondaryLabelColor
+        labelView.translatesAutoresizingMaskIntoConstraints = false
+
+        let valueView = NSTextField(labelWithString: value)
+        valueView.font = .monospacedDigitSystemFont(ofSize: 12.5, weight: .regular)
+        valueView.textColor = .labelColor
+        valueView.alignment = .right
+        valueView.lineBreakMode = .byTruncatingMiddle
+        valueView.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(labelView)
+        addSubview(valueView)
+
+        NSLayoutConstraint.activate([
+            labelView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: DetailMenuLayout.horizontalPadding),
+            labelView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            labelView.widthAnchor.constraint(equalToConstant: DetailMenuLayout.labelWidth),
+
+            valueView.leadingAnchor.constraint(equalTo: labelView.trailingAnchor, constant: 14),
+            valueView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -DetailMenuLayout.horizontalPadding),
+            valueView.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+}
+
+private final class DetailFootnoteRowView: NSView {
+    init(text: String) {
+        super.init(frame: NSRect(x: 0, y: 0, width: DetailMenuLayout.width, height: 32))
+
+        let label = NSTextField(labelWithString: text)
+        label.font = .systemFont(ofSize: 12, weight: .regular)
+        label.textColor = .secondaryLabelColor
+        label.lineBreakMode = .byTruncatingTail
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: DetailMenuLayout.horizontalPadding),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -DetailMenuLayout.horizontalPadding),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+}
+
 /// An empty view used to add breathing room between sections without a divider line.
 private final class MenuSpacerView: NSView {
     init(height: CGFloat) {
@@ -2098,7 +2185,7 @@ Coco Usage Bar \(version) (\(build))
         let submenu = NSMenu()
         submenu.autoenablesItems = false
 
-        addDisabledItem("\(providerName) details", to: submenu)
+        addDetailTitle("\(providerName) details", to: submenu)
         submenu.addItem(.separator())
         addDetailRow("Raw tokens", exactTokens(window.totalTokens), to: submenu)
         addDetailRow("Estimated cost", exactDollars(window.estimatedCostUSD), to: submenu)
@@ -2146,33 +2233,21 @@ Coco Usage Bar \(version) (\(build))
         image.representedObject = context
         submenu.addItem(image)
 
-        addDisabledItem("Estimated from local token logs · not an invoice", to: submenu)
+        addDetailFootnote("Estimated from local token logs · not an invoice", to: submenu)
         item.submenu = submenu
         return item
     }
 
-    private func addDisabledItem(_ title: String, to menu: NSMenu) {
-        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-        item.isEnabled = false
-        menu.addItem(item)
+    private func addDetailTitle(_ title: String, to menu: NSMenu) {
+        addView(DetailTitleRowView(title: title), to: menu)
     }
 
     private func addDetailRow(_ label: String, _ value: String, to menu: NSMenu) {
-        let item = NSMenuItem(title: detailLine(label, value), action: nil, keyEquivalent: "")
-        item.isEnabled = false
-        item.attributedTitle = NSAttributedString(
-            string: detailLine(label, value),
-            attributes: [
-                .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular),
-                .foregroundColor: NSColor.labelColor
-            ]
-        )
-        menu.addItem(item)
+        addView(DetailRowView(label: label, value: value), to: menu)
     }
 
-    private func detailLine(_ label: String, _ value: String) -> String {
-        let padded = label.padding(toLength: 18, withPad: " ", startingAt: 0)
-        return "\(padded) \(value)"
+    private func addDetailFootnote(_ title: String, to menu: NSMenu) {
+        addView(DetailFootnoteRowView(text: title), to: menu)
     }
 
     private func rateView(
