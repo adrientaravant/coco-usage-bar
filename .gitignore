@@ -4,5 +4,6 @@ dist/
 Package.resolved
 *.xcuserstate
 .codex/
+.superpowers/
 design-options.*
 menu-smoke.png
