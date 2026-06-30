@@ -1866,7 +1866,7 @@ Coco Usage Bar \(version) (\(build))
         if window.sessionCount > 0 {
             parts.append("\(exactCount(window.sessionCount)) sessions")
         }
-        if let source = compactBreakdown(window.sourceTokens, total: window.totalTokens) {
+        if let source = compactBreakdown(window.sourceTokens, total: window.totalTokens, requiresMultipleBuckets: true) {
             parts.append(source)
         }
         return "- " + parts.joined(separator: " · ")
@@ -1930,7 +1930,7 @@ Coco Usage Bar \(version) (\(build))
         let statsY: CGFloat = 338
         drawStatPill(title: "Codex sessions", value: snapshot.codexUsage.thirtyDays.sessionCount > 0 ? exactCount(snapshot.codexUsage.thirtyDays.sessionCount) : "n/a", x: 58, top: statsY, canvasHeight: size.height)
         drawStatPill(title: "Heaviest day", value: heaviestDay(snapshot.codexUsage.thirtyDays) ?? "n/a", x: 304, top: statsY, canvasHeight: size.height)
-        drawStatPill(title: "Source split", value: compactBreakdown(snapshot.codexUsage.thirtyDays.sourceTokens, total: snapshot.codexUsage.thirtyDays.totalTokens) ?? "n/a", x: 550, top: statsY, canvasHeight: size.height)
+        drawStatPill(title: "Source split", value: compactBreakdown(snapshot.codexUsage.thirtyDays.sourceTokens, total: snapshot.codexUsage.thirtyDays.totalTokens, requiresMultipleBuckets: true) ?? "n/a", x: 550, top: statsY, canvasHeight: size.height)
 
         drawText("Estimated from local token logs · public API pricing · not an invoice · prompts and local filenames excluded",
                  x: 58,
@@ -2227,7 +2227,7 @@ Coco Usage Bar \(version) (\(build))
         if let heaviest = heaviestDay(window) {
             addDetailRow("Heaviest day", heaviest, to: submenu)
         }
-        if let source = compactBreakdown(window.sourceTokens, total: window.totalTokens) {
+        if let source = compactBreakdown(window.sourceTokens, total: window.totalTokens, requiresMultipleBuckets: true) {
             addDetailRow("Source split", source, to: submenu)
         }
         if let model = compactBreakdown(window.modelTokens, total: window.totalTokens) {
@@ -2420,9 +2420,11 @@ Coco Usage Bar \(version) (\(build))
         return "\(label) · \(compactTokens(entry.value))"
     }
 
-    private func compactBreakdown(_ values: [String: Int64], total: Int64) -> String? {
-        guard total > 0, !values.isEmpty else { return nil }
-        return values
+    private func compactBreakdown(_ values: [String: Int64], total: Int64, requiresMultipleBuckets: Bool = false) -> String? {
+        guard total > 0 else { return nil }
+        let nonZeroValues = values.filter { !$0.key.isEmpty && $0.value > 0 }
+        guard !nonZeroValues.isEmpty, !requiresMultipleBuckets || nonZeroValues.count > 1 else { return nil }
+        return nonZeroValues
             .sorted { $0.value > $1.value }
             .prefix(2)
             .map { key, value in
