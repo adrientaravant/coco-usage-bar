@@ -16,8 +16,81 @@ struct TokenWindow: Codable {
     var estimatedCostUSD: Double = 0
     var eventCount: Int = 0
     var latestEventAt: Date?
+    var sessionCount: Int = 0
+    var sourceTokens: [String: Int64] = [:]
+    var modelTokens: [String: Int64] = [:]
+    var dayTokens: [String: Int64] = [:]
+    var pricingBasisTokens: [String: Int64] = [:]
+    var fallbackPricedTokens: Int64 = 0
+    var unpricedTokens: Int64 = 0
 
-    mutating func add(_ sample: UsageSample, at date: Date) {
+    private var sessionIDs: Set<String> = []
+
+    init() {}
+
+    enum CodingKeys: String, CodingKey {
+        case inputTokens
+        case cachedInputTokens
+        case cacheWriteTokens
+        case cacheReadTokens
+        case outputTokens
+        case reasoningTokens
+        case totalTokens
+        case estimatedCostUSD
+        case eventCount
+        case latestEventAt
+        case sessionCount
+        case sourceTokens
+        case modelTokens
+        case dayTokens
+        case pricingBasisTokens
+        case fallbackPricedTokens
+        case unpricedTokens
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        inputTokens = try container.decodeIfPresent(Int64.self, forKey: .inputTokens) ?? 0
+        cachedInputTokens = try container.decodeIfPresent(Int64.self, forKey: .cachedInputTokens) ?? 0
+        cacheWriteTokens = try container.decodeIfPresent(Int64.self, forKey: .cacheWriteTokens) ?? 0
+        cacheReadTokens = try container.decodeIfPresent(Int64.self, forKey: .cacheReadTokens) ?? 0
+        outputTokens = try container.decodeIfPresent(Int64.self, forKey: .outputTokens) ?? 0
+        reasoningTokens = try container.decodeIfPresent(Int64.self, forKey: .reasoningTokens) ?? 0
+        totalTokens = try container.decodeIfPresent(Int64.self, forKey: .totalTokens) ?? 0
+        estimatedCostUSD = try container.decodeIfPresent(Double.self, forKey: .estimatedCostUSD) ?? 0
+        eventCount = try container.decodeIfPresent(Int.self, forKey: .eventCount) ?? 0
+        latestEventAt = try container.decodeIfPresent(Date.self, forKey: .latestEventAt)
+        sessionCount = try container.decodeIfPresent(Int.self, forKey: .sessionCount) ?? 0
+        sourceTokens = try container.decodeIfPresent([String: Int64].self, forKey: .sourceTokens) ?? [:]
+        modelTokens = try container.decodeIfPresent([String: Int64].self, forKey: .modelTokens) ?? [:]
+        dayTokens = try container.decodeIfPresent([String: Int64].self, forKey: .dayTokens) ?? [:]
+        pricingBasisTokens = try container.decodeIfPresent([String: Int64].self, forKey: .pricingBasisTokens) ?? [:]
+        fallbackPricedTokens = try container.decodeIfPresent(Int64.self, forKey: .fallbackPricedTokens) ?? 0
+        unpricedTokens = try container.decodeIfPresent(Int64.self, forKey: .unpricedTokens) ?? 0
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(inputTokens, forKey: .inputTokens)
+        try container.encode(cachedInputTokens, forKey: .cachedInputTokens)
+        try container.encode(cacheWriteTokens, forKey: .cacheWriteTokens)
+        try container.encode(cacheReadTokens, forKey: .cacheReadTokens)
+        try container.encode(outputTokens, forKey: .outputTokens)
+        try container.encode(reasoningTokens, forKey: .reasoningTokens)
+        try container.encode(totalTokens, forKey: .totalTokens)
+        try container.encode(estimatedCostUSD, forKey: .estimatedCostUSD)
+        try container.encode(eventCount, forKey: .eventCount)
+        try container.encodeIfPresent(latestEventAt, forKey: .latestEventAt)
+        try container.encode(sessionCount, forKey: .sessionCount)
+        try container.encode(sourceTokens, forKey: .sourceTokens)
+        try container.encode(modelTokens, forKey: .modelTokens)
+        try container.encode(dayTokens, forKey: .dayTokens)
+        try container.encode(pricingBasisTokens, forKey: .pricingBasisTokens)
+        try container.encode(fallbackPricedTokens, forKey: .fallbackPricedTokens)
+        try container.encode(unpricedTokens, forKey: .unpricedTokens)
+    }
+
+    mutating func add(_ sample: UsageSample, at date: Date, dayKey: String) {
         inputTokens += sample.inputTokens
         cachedInputTokens += sample.cachedInputTokens
         cacheWriteTokens += sample.cacheWriteTokens
@@ -30,6 +103,26 @@ struct TokenWindow: Codable {
         if latestEventAt == nil || date > latestEventAt! {
             latestEventAt = date
         }
+        if let sessionID = sample.sessionID, !sessionID.isEmpty {
+            sessionIDs.insert(sessionID)
+            sessionCount = sessionIDs.count
+        }
+        if let source = sample.source, !source.isEmpty {
+            sourceTokens[source, default: 0] += sample.totalTokens
+        }
+        if let model = sample.model, !model.isEmpty {
+            modelTokens[model, default: 0] += sample.totalTokens
+        }
+        if !sample.pricingBasis.isEmpty {
+            pricingBasisTokens[sample.pricingBasis, default: 0] += sample.totalTokens
+        }
+        if sample.isFallbackPriced {
+            fallbackPricedTokens += sample.totalTokens
+        }
+        if sample.isUnpriced {
+            unpricedTokens += sample.totalTokens
+        }
+        dayTokens[dayKey, default: 0] += sample.totalTokens
     }
 }
 
@@ -42,6 +135,12 @@ struct UsageSample {
     let reasoningTokens: Int64
     let totalTokens: Int64
     let estimatedCostUSD: Double
+    let sessionID: String?
+    let source: String?
+    let model: String?
+    let pricingBasis: String
+    let isFallbackPriced: Bool
+    let isUnpriced: Bool
 }
 
 struct ProviderUsage: Codable {
@@ -51,14 +150,23 @@ struct ProviderUsage: Codable {
 
     mutating func add(_ sample: UsageSample, at date: Date, todayStart: Date, sevenDayCutoff: Date, thirtyDayCutoff: Date) {
         guard date >= thirtyDayCutoff else { return }
-        thirtyDays.add(sample, at: date)
+        let dayKey = ProviderUsage.dayFormatter.string(from: date)
+        thirtyDays.add(sample, at: date, dayKey: dayKey)
         if date >= sevenDayCutoff {
-            sevenDays.add(sample, at: date)
+            sevenDays.add(sample, at: date, dayKey: dayKey)
         }
         if date >= todayStart {
-            today.add(sample, at: date)
+            today.add(sample, at: date, dayKey: dayKey)
         }
     }
+
+    private static let dayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
 }
 
 struct RateWindow: Codable {
@@ -155,31 +263,143 @@ struct TokenPrices {
     let outputPerMTok: Double
 }
 
-enum CostEstimator {
-    // Default Codex estimate: GPT-5.4 short-context API pricing.
-    static let codex = TokenPrices(
-        inputPerMTok: 1.25,
-        cachedInputPerMTok: 0.13,
-        cacheWritePerMTok: 1.25,
-        cacheReadPerMTok: 0.13,
-        outputPerMTok: 7.50
-    )
+struct CostEstimate {
+    let amountUSD: Double
+    let basis: String
+    let isFallback: Bool
+    let isPriced: Bool
+}
 
-    static func claudePrices(model: String?) -> TokenPrices {
-        let normalized = (model ?? "").lowercased()
-        if normalized.contains("fable") || normalized.contains("mythos") {
-            return TokenPrices(inputPerMTok: 10, cachedInputPerMTok: 1, cacheWritePerMTok: 12.50, cacheReadPerMTok: 1, outputPerMTok: 50)
+enum CostEstimator {
+    static func codexPrices(model: String?) -> (prices: TokenPrices, basis: String, isFallback: Bool) {
+        let normalized = normalizedModel(model)
+        switch normalized {
+        case let value where value.contains("gpt-5.5"):
+            return (
+                TokenPrices(inputPerMTok: 5, cachedInputPerMTok: 0.50, cacheWritePerMTok: 5, cacheReadPerMTok: 0.50, outputPerMTok: 30),
+                "OpenAI GPT-5.5 public API pricing",
+                false
+            )
+        case let value where value.contains("gpt-5.4") || value.contains("codex-auto-review"):
+            return (
+                TokenPrices(inputPerMTok: 2.50, cachedInputPerMTok: 0.25, cacheWritePerMTok: 2.50, cacheReadPerMTok: 0.25, outputPerMTok: 15),
+                "OpenAI GPT-5.4 public API pricing",
+                normalized.isEmpty
+            )
+        case let value where value.contains("gpt-5.3"):
+            return (
+                TokenPrices(inputPerMTok: 1.25, cachedInputPerMTok: 0.13, cacheWritePerMTok: 1.25, cacheReadPerMTok: 0.13, outputPerMTok: 7.50),
+                "OpenAI GPT-5.3 fallback pricing",
+                false
+            )
+        default:
+            return (
+                TokenPrices(inputPerMTok: 5, cachedInputPerMTok: 0.50, cacheWritePerMTok: 5, cacheReadPerMTok: 0.50, outputPerMTok: 30),
+                "OpenAI GPT-5.5 public API pricing (fallback)",
+                true
+            )
         }
-        if normalized.contains("opus") {
-            return TokenPrices(inputPerMTok: 5, cachedInputPerMTok: 0.50, cacheWritePerMTok: 6.25, cacheReadPerMTok: 0.50, outputPerMTok: 25)
-        }
-        if normalized.contains("haiku") {
-            return TokenPrices(inputPerMTok: 1, cachedInputPerMTok: 0.10, cacheWritePerMTok: 1.25, cacheReadPerMTok: 0.10, outputPerMTok: 5)
-        }
-        return TokenPrices(inputPerMTok: 3, cachedInputPerMTok: 0.30, cacheWritePerMTok: 3.75, cacheReadPerMTok: 0.30, outputPerMTok: 15)
     }
 
-    static func cost(
+    static func claudePrices(model: String?) -> (prices: TokenPrices, basis: String, isFallback: Bool, isPriced: Bool) {
+        let normalized = (model ?? "").lowercased()
+        if normalized == "<synthetic>" {
+            return (
+                TokenPrices(inputPerMTok: 0, cachedInputPerMTok: 0, cacheWritePerMTok: 0, cacheReadPerMTok: 0, outputPerMTok: 0),
+                "Unpriced synthetic Claude rows",
+                false,
+                false
+            )
+        }
+        if normalized.contains("fable") || normalized.contains("mythos") {
+            return (
+                TokenPrices(inputPerMTok: 10, cachedInputPerMTok: 1, cacheWritePerMTok: 12.50, cacheReadPerMTok: 1, outputPerMTok: 50),
+                "Anthropic Claude Fable/Mythos public API pricing",
+                false,
+                true
+            )
+        }
+        if normalized.contains("opus") {
+            return (
+                TokenPrices(inputPerMTok: 5, cachedInputPerMTok: 0.50, cacheWritePerMTok: 6.25, cacheReadPerMTok: 0.50, outputPerMTok: 25),
+                "Anthropic Claude Opus public API pricing",
+                false,
+                true
+            )
+        }
+        if normalized.contains("haiku") {
+            return (
+                TokenPrices(inputPerMTok: 1, cachedInputPerMTok: 0.10, cacheWritePerMTok: 1.25, cacheReadPerMTok: 0.10, outputPerMTok: 5),
+                "Anthropic Claude Haiku public API pricing",
+                false,
+                true
+            )
+        }
+        if normalized.contains("sonnet") {
+            return (
+                TokenPrices(inputPerMTok: 3, cachedInputPerMTok: 0.30, cacheWritePerMTok: 3.75, cacheReadPerMTok: 0.30, outputPerMTok: 15),
+                "Anthropic Claude Sonnet public API pricing",
+                false,
+                true
+            )
+        }
+        return (
+            TokenPrices(inputPerMTok: 3, cachedInputPerMTok: 0.30, cacheWritePerMTok: 3.75, cacheReadPerMTok: 0.30, outputPerMTok: 15),
+            "Anthropic Claude Sonnet public API pricing (fallback)",
+            true,
+            true
+        )
+    }
+
+    static func codexCost(
+        model: String?,
+        inputTokens: Int64,
+        cachedInputTokens: Int64,
+        outputTokens: Int64,
+        reasoningTokens: Int64
+    ) -> CostEstimate {
+        let resolved = codexPrices(model: model)
+        return CostEstimate(
+            amountUSD: cost(
+                inputTokens: inputTokens,
+                cachedInputTokens: cachedInputTokens,
+                outputTokens: outputTokens,
+                reasoningTokens: reasoningTokens,
+                prices: resolved.prices
+            ),
+            basis: resolved.basis,
+            isFallback: resolved.isFallback,
+            isPriced: true
+        )
+    }
+
+    static func claudeCost(
+        model: String?,
+        inputTokens: Int64,
+        cacheWriteTokens: Int64,
+        cacheReadTokens: Int64,
+        outputTokens: Int64
+    ) -> CostEstimate {
+        let resolved = claudePrices(model: model)
+        return CostEstimate(
+            amountUSD: cost(
+                inputTokens: inputTokens,
+                cacheWriteTokens: cacheWriteTokens,
+                cacheReadTokens: cacheReadTokens,
+                outputTokens: outputTokens,
+                prices: resolved.prices
+            ),
+            basis: resolved.basis,
+            isFallback: resolved.isFallback,
+            isPriced: resolved.isPriced
+        )
+    }
+
+    private static func normalizedModel(_ model: String?) -> String {
+        (model ?? "").lowercased()
+    }
+
+    private static func cost(
         inputTokens: Int64,
         cachedInputTokens: Int64 = 0,
         cacheWriteTokens: Int64 = 0,
@@ -208,6 +428,7 @@ final class UsageReader {
     private let isoWithoutFractional: ISO8601DateFormatter
     private let newline = Data([0x0A])
     private let ripgrepURL: URL?
+    private let modelRegex: NSRegularExpression?
     private let debugTiming: Bool
 
     init(debugTiming: Bool = false) {
@@ -224,6 +445,7 @@ final class UsageReader {
         ]
             .map(URL.init(fileURLWithPath:))
             .first { FileManager.default.isExecutableFile(atPath: $0.path) }
+        modelRegex = try? NSRegularExpression(pattern: #""(?:model|model_name|model_slug|model_id)"\s*:\s*"([^"]+)""#)
     }
 
     func load() -> UsageSnapshot {
@@ -235,7 +457,10 @@ final class UsageReader {
 
         debugLog("read codex start")
         let codex = readCodex(
-            root: home.appendingPathComponent(".codex/sessions", isDirectory: true),
+            roots: [
+                home.appendingPathComponent(".codex/sessions", isDirectory: true),
+                home.appendingPathComponent(".codex/archived_sessions", isDirectory: true)
+            ],
             sevenDayCutoff: sevenDayCutoff,
             thirtyDayCutoff: thirtyDayCutoff,
             todayStart: todayStart
@@ -269,43 +494,45 @@ final class UsageReader {
     }
 
     private func readCodex(
-        root: URL,
+        roots: [URL],
         sevenDayCutoff: Date,
         thirtyDayCutoff: Date,
         todayStart: Date
     ) -> (limits: CodexRateLimits?, usage: ProviderUsage) {
         var latestLimits: CodexRateLimits?
         var usage = ProviderUsage()
-        let roots = codexDateRoots(root: root, from: thirtyDayCutoff, through: Date())
-        debugLog("codex roots \(roots.filter { fileManager.fileExists(atPath: $0.path) }.count)")
+        var seenLines = Set<String>()
+        let searchRoots = roots.flatMap { codexSearchRoots(root: $0, from: thirtyDayCutoff, through: Date()) }
+        debugLog("codex roots \(searchRoots.filter { fileManager.fileExists(atPath: $0.path) }.count)")
 
-        let usedRipgrep = forEachRipgrepLine(
-            pattern: #""type"\s*:\s*"event_msg".*"rate_limits""#,
-            roots: roots.isEmpty ? [root] : roots
-        ) { line in
-            parseCodexLine(
+        let states = CodexFileStates()
+        let usedRipgrep = forEachRipgrepPathLine(
+            pattern: #""token_count"|"rate_limits"|"session_meta"|"(?:model|model_name|model_slug|model_id)"\s*:\s*"(?:gpt-|codex|claude)"#,
+            roots: searchRoots
+        ) { file, line in
+            parseCodexMatchedLine(
                 line,
-                sevenDayCutoff: sevenDayCutoff,
+                file: file,
+                state: states.state(for: file),
                 thirtyDayCutoff: thirtyDayCutoff,
-                todayStart: todayStart,
                 latestLimits: &latestLimits,
-                usage: &usage
+                seenLines: &seenLines
             )
         }
 
-        if !usedRipgrep {
-            for file in jsonlFiles(under: root, modifiedSince: thirtyDayCutoff.addingTimeInterval(-24 * 60 * 60)) {
-                forEachLine(in: file) { line in
-                    guard line.contains(#""type":"event_msg""#),
-                          line.contains(#""rate_limits""#) || line.contains(#""token_count""#)
-                    else { return }
-                    parseCodexLine(
-                        line,
+        if usedRipgrep {
+            applyCodexStates(states.all, sevenDayCutoff: sevenDayCutoff, thirtyDayCutoff: thirtyDayCutoff, todayStart: todayStart, usage: &usage)
+        } else {
+            for root in searchRoots {
+                for file in jsonlFiles(under: root, modifiedSince: Date.distantPast) {
+                    parseCodexFile(
+                        file,
                         sevenDayCutoff: sevenDayCutoff,
                         thirtyDayCutoff: thirtyDayCutoff,
                         todayStart: todayStart,
                         latestLimits: &latestLimits,
-                        usage: &usage
+                        usage: &usage,
+                        seenLines: &seenLines
                     )
                 }
             }
@@ -314,16 +541,75 @@ final class UsageReader {
         return (latestLimits, usage)
     }
 
-    private func parseCodexLine(
+    private struct PendingCodexEvent {
+        let line: String
+        let timestamp: Date
+        let usage: [String: Any]
+    }
+
+    private final class CodexFileState {
+        let file: URL
+        var sessionID: String
+        var originator = ""
+        var source = ""
+        var threadSource = ""
+        var modelCounts: [String: Int] = [:]
+        var pendingEvents: [PendingCodexEvent] = []
+
+        init(file: URL) {
+            self.file = file
+            sessionID = file.deletingPathExtension().lastPathComponent
+        }
+    }
+
+    private final class CodexFileStates {
+        private var values: [String: CodexFileState] = [:]
+
+        var all: [CodexFileState] {
+            Array(values.values)
+        }
+
+        func state(for file: URL) -> CodexFileState {
+            let key = file.path
+            if let existing = values[key] { return existing }
+            let state = CodexFileState(file: file)
+            values[key] = state
+            return state
+        }
+    }
+
+    private func parseCodexMatchedLine(
         _ line: String,
-        sevenDayCutoff: Date,
+        file: URL,
+        state: CodexFileState,
         thirtyDayCutoff: Date,
-        todayStart: Date,
         latestLimits: inout CodexRateLimits?,
-        usage: inout ProviderUsage
+        seenLines: inout Set<String>
     ) {
-        guard let object = jsonObject(from: line),
-              let timestamp = parseTimestamp(object["timestamp"]),
+        if line.contains(#""model"#) {
+            for model in modelHints(inLine: line) {
+                state.modelCounts[model, default: 0] += 1
+            }
+        }
+
+        guard line.contains(#""token_count""#)
+                || line.contains(#""rate_limits""#)
+                || line.contains(#""session_meta""#)
+        else { return }
+        guard let object = jsonObject(from: line) else { return }
+
+        if (object["type"] as? String) == "session_meta",
+           let payload = object["payload"] as? [String: Any] {
+            if let id = payload["id"] as? String, !id.isEmpty {
+                state.sessionID = id
+            }
+            state.originator = payload["originator"] as? String ?? state.originator
+            state.source = scalarDescription(payload["source"]) ?? state.source
+            state.threadSource = payload["thread_source"] as? String ?? state.threadSource
+            return
+        }
+
+        guard let timestamp = parseTimestamp(object["timestamp"]),
               let payload = object["payload"] as? [String: Any]
         else { return }
 
@@ -333,13 +619,113 @@ final class UsageReader {
             latestLimits = parsed
         }
 
-        guard (payload["type"] as? String) == "token_count",
+        guard timestamp >= thirtyDayCutoff,
+              (payload["type"] as? String) == "token_count",
               let info = payload["info"] as? [String: Any],
               let lastTokenUsage = info["last_token_usage"] as? [String: Any],
-              let sample = codexSample(from: lastTokenUsage)
+              seenLines.insert(line).inserted
         else { return }
 
-        usage.add(sample, at: timestamp, todayStart: todayStart, sevenDayCutoff: sevenDayCutoff, thirtyDayCutoff: thirtyDayCutoff)
+        state.pendingEvents.append(PendingCodexEvent(line: line, timestamp: timestamp, usage: lastTokenUsage))
+    }
+
+    private func applyCodexStates(
+        _ states: [CodexFileState],
+        sevenDayCutoff: Date,
+        thirtyDayCutoff: Date,
+        todayStart: Date,
+        usage: inout ProviderUsage
+    ) {
+        for state in states {
+            let model = preferredModel(from: state.modelCounts)
+            let sourceLabel = codexSourceLabel(originator: state.originator, source: state.source, threadSource: state.threadSource)
+            for event in state.pendingEvents {
+                guard let sample = codexSample(
+                    from: event.usage,
+                    model: model,
+                    source: sourceLabel,
+                    sessionID: state.sessionID
+                ) else { continue }
+                usage.add(sample, at: event.timestamp, todayStart: todayStart, sevenDayCutoff: sevenDayCutoff, thirtyDayCutoff: thirtyDayCutoff)
+            }
+        }
+    }
+
+    private func parseCodexFile(
+        _ file: URL,
+        sevenDayCutoff: Date,
+        thirtyDayCutoff: Date,
+        todayStart: Date,
+        latestLimits: inout CodexRateLimits?,
+        usage: inout ProviderUsage,
+        seenLines: inout Set<String>
+    ) {
+        var sessionID = file.deletingPathExtension().lastPathComponent
+        var originator = ""
+        var source = ""
+        var threadSource = ""
+        var modelCounts: [String: Int] = [:]
+        var pendingEvents: [PendingCodexEvent] = []
+
+        forEachLine(in: file) { line in
+            if line.contains(#""model"#) {
+                for model in modelHints(inLine: line) {
+                    modelCounts[model, default: 0] += 1
+                }
+            }
+
+            guard line.contains(#""token_count""#)
+                    || line.contains(#""rate_limits""#)
+                    || line.contains(#""session_meta""#)
+            else { return }
+            guard let object = jsonObject(from: line) else { return }
+
+            for model in modelHints(inLine: line) {
+                modelCounts[model, default: 0] += 1
+            }
+
+            if (object["type"] as? String) == "session_meta",
+               let payload = object["payload"] as? [String: Any] {
+                if let id = payload["id"] as? String, !id.isEmpty {
+                    sessionID = id
+                }
+                originator = payload["originator"] as? String ?? originator
+                source = scalarDescription(payload["source"]) ?? source
+                threadSource = payload["thread_source"] as? String ?? threadSource
+                return
+            }
+
+            guard let timestamp = parseTimestamp(object["timestamp"]),
+                  let payload = object["payload"] as? [String: Any]
+            else { return }
+
+            if let rateLimits = payload["rate_limits"] as? [String: Any],
+               let parsed = parseCodexRateLimits(rateLimits, updatedAt: timestamp),
+               latestLimits == nil || parsed.updatedAt > latestLimits!.updatedAt {
+                latestLimits = parsed
+            }
+
+            guard timestamp >= thirtyDayCutoff,
+                  (payload["type"] as? String) == "token_count",
+                  let info = payload["info"] as? [String: Any],
+                  let lastTokenUsage = info["last_token_usage"] as? [String: Any],
+                  seenLines.insert(line).inserted
+            else { return }
+
+            pendingEvents.append(PendingCodexEvent(line: line, timestamp: timestamp, usage: lastTokenUsage))
+        }
+
+        let model = preferredModel(from: modelCounts)
+        let sourceLabel = codexSourceLabel(originator: originator, source: source, threadSource: threadSource)
+        for event in pendingEvents {
+            guard let sample = codexSample(
+                from: event.usage,
+                model: model,
+                source: sourceLabel,
+                sessionID: sessionID
+            ) else { continue }
+            usage.add(sample, at: event.timestamp, todayStart: todayStart, sevenDayCutoff: sevenDayCutoff, thirtyDayCutoff: thirtyDayCutoff)
+        }
     }
 
     private func readClaude(
@@ -351,15 +737,11 @@ final class UsageReader {
         var usage = ProviderUsage()
         var keyedSamples: [String: (date: Date, sample: UsageSample)] = [:]
         var unkeyedSamples: [(date: Date, sample: UsageSample)] = []
-        let usedRipgrep = forEachRipgrepLine(
-            pattern: #""usage""#,
-            roots: [root]
-        ) { line in
+
+        let usedRipgrep = forEachRipgrepPathLine(pattern: #""usage""#, roots: [root]) { file, line in
             parseClaudeLine(
                 line,
-                sevenDayCutoff: sevenDayCutoff,
-                thirtyDayCutoff: thirtyDayCutoff,
-                todayStart: todayStart,
+                sessionID: file.deletingPathExtension().lastPathComponent,
                 keyedSamples: &keyedSamples,
                 unkeyedSamples: &unkeyedSamples
             )
@@ -367,18 +749,20 @@ final class UsageReader {
 
         if !usedRipgrep {
             for file in jsonlFiles(under: root, modifiedSince: thirtyDayCutoff.addingTimeInterval(-24 * 60 * 60)) {
+                let sessionID = file.deletingPathExtension().lastPathComponent
                 forEachLine(in: file) { line in
                     guard line.contains(#""usage""#) else { return }
                     parseClaudeLine(
                         line,
-                        sevenDayCutoff: sevenDayCutoff,
-                        thirtyDayCutoff: thirtyDayCutoff,
-                        todayStart: todayStart,
+                        sessionID: sessionID,
                         keyedSamples: &keyedSamples,
                         unkeyedSamples: &unkeyedSamples
                     )
                 }
             }
+        } else {
+            keyedSamples = keyedSamples.filter { $0.value.date >= thirtyDayCutoff }
+            unkeyedSamples = unkeyedSamples.filter { $0.date >= thirtyDayCutoff }
         }
 
         for entry in keyedSamples.values {
@@ -515,9 +899,7 @@ final class UsageReader {
 
     private func parseClaudeLine(
         _ line: String,
-        sevenDayCutoff: Date,
-        thirtyDayCutoff: Date,
-        todayStart: Date,
+        sessionID: String,
         keyedSamples: inout [String: (date: Date, sample: UsageSample)],
         unkeyedSamples: inout [(date: Date, sample: UsageSample)]
     ) {
@@ -526,7 +908,11 @@ final class UsageReader {
               let timestamp = parseTimestamp(object["timestamp"]),
               let message = object["message"] as? [String: Any],
               let messageUsage = message["usage"] as? [String: Any],
-              let sample = claudeSample(from: messageUsage, model: message["model"] as? String)
+              let sample = claudeSample(
+                from: messageUsage,
+                model: message["model"] as? String,
+                sessionID: sessionID
+              )
         else { return }
 
         if let messageID = message["id"] as? String,
@@ -584,6 +970,61 @@ final class UsageReader {
         return process.terminationStatus == 0 || process.terminationStatus == 1
     }
 
+    @discardableResult
+    private func forEachRipgrepPathLine(pattern: String, roots: [URL], _ body: (URL, String) -> Void) -> Bool {
+        guard let ripgrepURL else { return false }
+
+        let existingRoots = roots.filter { fileManager.fileExists(atPath: $0.path) }
+        guard !existingRoots.isEmpty else { return true }
+        debugLog("rg path start \(pattern) roots \(existingRoots.count)")
+
+        let process = Process()
+        process.executableURL = ripgrepURL
+        process.arguments = ["--with-filename", "-g", "*.jsonl", pattern] + existingRoots.map(\.path)
+
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+        } catch {
+            return false
+        }
+
+        func emit(_ rawLine: String) {
+            guard let separator = rawLine.firstIndex(of: ":") else { return }
+            let path = String(rawLine[..<separator])
+            let line = String(rawLine[rawLine.index(after: separator)...])
+            guard !path.isEmpty, !line.isEmpty else { return }
+            body(URL(fileURLWithPath: path), line)
+        }
+
+        var buffer = Data()
+        while true {
+            let chunk = (try? output.fileHandleForReading.read(upToCount: 64 * 1024)) ?? Data()
+            if chunk.isEmpty { break }
+            buffer.append(chunk)
+
+            while let range = buffer.firstRange(of: newline) {
+                let lineData = buffer.subdata(in: buffer.startIndex..<range.lowerBound)
+                buffer.removeSubrange(buffer.startIndex..<range.upperBound)
+                if let line = String(data: lineData, encoding: .utf8), !line.isEmpty {
+                    emit(line)
+                }
+            }
+        }
+
+        if !buffer.isEmpty, let line = String(data: buffer, encoding: .utf8) {
+            emit(line)
+        }
+
+        process.waitUntilExit()
+        debugLog("rg path done status \(process.terminationStatus)")
+
+        return process.terminationStatus == 0 || process.terminationStatus == 1
+    }
+
     private func codexDateRoots(root: URL, from cutoff: Date, through end: Date) -> [URL] {
         var roots: [URL] = []
         var cursor = calendar.startOfDay(for: cutoff)
@@ -599,6 +1040,15 @@ final class UsageReader {
         }
 
         return roots
+    }
+
+    private func codexSearchRoots(root: URL, from cutoff: Date, through end: Date) -> [URL] {
+        guard fileManager.fileExists(atPath: root.path) else { return [] }
+
+        let datedRoots = codexDateRoots(root: root, from: cutoff, through: end)
+            .filter { fileManager.fileExists(atPath: $0.path) }
+
+        return datedRoots.isEmpty ? [root] : datedRoots
     }
 
     private func jsonlFiles(under root: URL, modifiedSince cutoff: Date) -> [URL] {
@@ -674,40 +1124,55 @@ final class UsageReader {
         )
     }
 
-    private func codexSample(from usage: [String: Any]) -> UsageSample? {
+    private func codexSample(from usage: [String: Any], model: String?, source: String, sessionID: String) -> UsageSample? {
         let rawInput = intValue(usage["input_tokens"]) ?? 0
         let cachedInput = intValue(usage["cached_input_tokens"]) ?? 0
         let input = max(rawInput - cachedInput, 0)
         let output = intValue(usage["output_tokens"]) ?? 0
         let reasoning = intValue(usage["reasoning_output_tokens"]) ?? 0
-        let total = rawInput + output + reasoning
+        let visibleOutput = max(output - reasoning, 0)
+        let total = intValue(usage["total_tokens"]) ?? rawInput + output
         guard total > 0 else { return nil }
+        let estimate = CostEstimator.codexCost(
+            model: model,
+            inputTokens: input,
+            cachedInputTokens: cachedInput,
+            outputTokens: visibleOutput,
+            reasoningTokens: reasoning
+        )
 
         return UsageSample(
             inputTokens: input,
             cachedInputTokens: cachedInput,
             cacheWriteTokens: 0,
             cacheReadTokens: 0,
-            outputTokens: output,
+            outputTokens: visibleOutput,
             reasoningTokens: reasoning,
             totalTokens: total,
-            estimatedCostUSD: CostEstimator.cost(
-                inputTokens: input,
-                cachedInputTokens: cachedInput,
-                outputTokens: output,
-                reasoningTokens: reasoning,
-                prices: CostEstimator.codex
-            )
+            estimatedCostUSD: estimate.amountUSD,
+            sessionID: sessionID,
+            source: source,
+            model: model ?? "OpenAI GPT-5.5 fallback",
+            pricingBasis: estimate.basis,
+            isFallbackPriced: estimate.isFallback,
+            isUnpriced: !estimate.isPriced
         )
     }
 
-    private func claudeSample(from usage: [String: Any], model: String?) -> UsageSample? {
+    private func claudeSample(from usage: [String: Any], model: String?, sessionID: String) -> UsageSample? {
         let input = intValue(usage["input_tokens"]) ?? 0
         let cacheWrite = intValue(usage["cache_creation_input_tokens"]) ?? 0
         let cacheRead = intValue(usage["cache_read_input_tokens"]) ?? 0
         let output = intValue(usage["output_tokens"]) ?? 0
         let total = input + cacheWrite + cacheRead + output
         guard total > 0 else { return nil }
+        let estimate = CostEstimator.claudeCost(
+            model: model,
+            inputTokens: input,
+            cacheWriteTokens: cacheWrite,
+            cacheReadTokens: cacheRead,
+            outputTokens: output
+        )
 
         return UsageSample(
             inputTokens: input,
@@ -717,14 +1182,86 @@ final class UsageReader {
             outputTokens: output,
             reasoningTokens: 0,
             totalTokens: total,
-            estimatedCostUSD: CostEstimator.cost(
-                inputTokens: input,
-                cacheWriteTokens: cacheWrite,
-                cacheReadTokens: cacheRead,
-                outputTokens: output,
-                prices: CostEstimator.claudePrices(model: model)
-            )
+            estimatedCostUSD: estimate.amountUSD,
+            sessionID: sessionID,
+            source: "Claude Code",
+            model: model ?? "Claude Sonnet fallback",
+            pricingBasis: estimate.basis,
+            isFallbackPriced: estimate.isFallback,
+            isUnpriced: !estimate.isPriced
         )
+    }
+
+    private func preferredModel(from counts: [String: Int]) -> String? {
+        counts
+            .filter { !$0.key.isEmpty }
+            .max { lhs, rhs in lhs.value < rhs.value }?
+            .key
+    }
+
+    private func modelHints(inLine line: String) -> [String] {
+        guard let modelRegex else { return [] }
+        let nsRange = NSRange(line.startIndex..<line.endIndex, in: line)
+        return modelRegex.matches(in: line, range: nsRange).compactMap { match in
+            guard match.numberOfRanges > 1,
+                  let range = Range(match.range(at: 1), in: line)
+            else { return nil }
+            let model = String(line[range])
+            return isLikelyModelName(model) ? model : nil
+        }
+    }
+
+    private func modelHints(in value: Any) -> [String] {
+        var results: [String] = []
+        func visit(_ node: Any) {
+            if let dict = node as? [String: Any] {
+                for (key, value) in dict {
+                    if ["model", "model_name", "model_slug", "model_id"].contains(key),
+                       let model = value as? String,
+                       isLikelyModelName(model) {
+                        results.append(model)
+                    } else if let nested = value as? [String: Any] {
+                        visit(nested)
+                    } else if let nested = value as? [Any] {
+                        nested.prefix(30).forEach(visit)
+                    }
+                }
+            } else if let array = node as? [Any] {
+                array.prefix(30).forEach(visit)
+            }
+        }
+        visit(value)
+        return results
+    }
+
+    private func isLikelyModelName(_ value: String) -> Bool {
+        let normalized = value.lowercased()
+        return normalized.contains("gpt-")
+            || normalized.contains("codex")
+            || normalized.contains("claude")
+    }
+
+    private func codexSourceLabel(originator: String, source: String, threadSource: String) -> String {
+        let joined = "\(originator) \(source) \(threadSource)".lowercased()
+        if joined.contains("subagent") { return "Subagent" }
+        if joined.contains("codex-tui") || joined.contains("cli") { return "CLI / TUI" }
+        if joined.contains("codex_exec") || joined.contains("exec") { return "Exec" }
+        if joined.contains("desktop") || joined.contains("vscode") { return "Desktop app" }
+        return "Codex"
+    }
+
+    private func scalarDescription(_ value: Any?) -> String? {
+        switch value {
+        case let string as String:
+            return string
+        case let number as NSNumber:
+            return number.stringValue
+        case let dict as [String: Any]:
+            if dict["subagent"] != nil { return "subagent" }
+            return nil
+        default:
+            return nil
+        }
     }
 
     private func intValue(_ value: Any?) -> Int64? {
@@ -780,14 +1317,14 @@ enum SnapshotCache {
 
 private enum MenuLayout {
     static let width: CGFloat = 360
-    static let horizontalPadding: CGFloat = 14
-    static let valueLeading: CGFloat = 94
-    static let railLeading: CGFloat = 98
+    static let horizontalPadding: CGFloat = 12
+    static let valueLeading: CGFloat = 82
+    static let railLeading: CGFloat = horizontalPadding
 }
 
 private final class MenuHeaderView: NSView {
     init(iconName: String, title: String, detail: String) {
-        super.init(frame: NSRect(x: 0, y: 0, width: MenuLayout.width, height: 34))
+        super.init(frame: NSRect(x: 0, y: 0, width: MenuLayout.width, height: 28))
 
         let icon = NSImageView()
         icon.image = providerImage(named: iconName)
@@ -795,8 +1332,8 @@ private final class MenuHeaderView: NSView {
         icon.translatesAutoresizingMaskIntoConstraints = false
 
         let titleLabel = NSTextField(labelWithString: title)
-        titleLabel.font = .systemFont(ofSize: 14, weight: .semibold)
-        titleLabel.textColor = .labelColor
+        titleLabel.font = .systemFont(ofSize: 12.5, weight: .semibold)
+        titleLabel.textColor = .secondaryLabelColor
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
         let detailLabel = NSTextField(labelWithString: detail)
@@ -812,8 +1349,8 @@ private final class MenuHeaderView: NSView {
         NSLayoutConstraint.activate([
             icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: MenuLayout.horizontalPadding),
             icon.centerYAnchor.constraint(equalTo: centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 14),
-            icon.heightAnchor.constraint(equalToConstant: 14),
+            icon.widthAnchor.constraint(equalToConstant: 13),
+            icon.heightAnchor.constraint(equalToConstant: 13),
 
             titleLabel.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 8),
             titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -845,11 +1382,11 @@ private final class MenuLimitRowView: NSView {
         self.usedPercent = usedPercent
         self.pacePercent = pacePercent
         self.providerColor = providerColor
-        super.init(frame: NSRect(x: 0, y: 0, width: MenuLayout.width, height: usedPercent == nil ? 30 : 42))
+        super.init(frame: NSRect(x: 0, y: 0, width: MenuLayout.width, height: usedPercent == nil ? 28 : 38))
         wantsLayer = true
 
         let labelView = NSTextField(labelWithString: label)
-        labelView.font = .systemFont(ofSize: 13, weight: .semibold)
+        labelView.font = .systemFont(ofSize: 12.5, weight: .semibold)
         labelView.textColor = .labelColor
         labelView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -868,7 +1405,7 @@ private final class MenuLimitRowView: NSView {
 
         NSLayoutConstraint.activate([
             labelView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: MenuLayout.horizontalPadding),
-            labelView.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            labelView.topAnchor.constraint(equalTo: topAnchor, constant: 5),
             labelView.widthAnchor.constraint(equalToConstant: 60),
 
             valueView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: MenuLayout.valueLeading),
@@ -888,9 +1425,9 @@ private final class MenuLimitRowView: NSView {
         guard let usedPercent else { return }
 
         let railX = MenuLayout.railLeading
-        let railY: CGFloat = 29
-        let railHeight: CGFloat = 4
-        let railWidth = bounds.width - railX - MenuLayout.horizontalPadding
+        let railY: CGFloat = 28
+        let railHeight: CGFloat = 3
+        let railWidth = bounds.width - (MenuLayout.horizontalPadding * 2)
         let railRect = NSRect(x: railX, y: railY, width: railWidth, height: railHeight)
         NSColor.separatorColor.withAlphaComponent(0.38).setFill()
         NSBezierPath(roundedRect: railRect, xRadius: railHeight / 2, yRadius: railHeight / 2).fill()
@@ -904,7 +1441,7 @@ private final class MenuLimitRowView: NSView {
         guard let pacePercent else { return }
         let paceRatio = max(0, min(pacePercent / 100, 1))
         let tickX = railX + railWidth * paceRatio
-        let tickRect = NSRect(x: tickX - 1, y: railY - 3, width: 2, height: 10)
+        let tickRect = NSRect(x: tickX - 1, y: railY - 4, width: 2, height: 11)
         NSColor.labelColor.withAlphaComponent(0.62).setFill()
         NSBezierPath(roundedRect: tickRect, xRadius: 1, yRadius: 1).fill()
     }
@@ -1110,6 +1647,29 @@ private func providerImage(named name: String) -> NSImage? {
     return image
 }
 
+private func mascotImage() -> NSImage? {
+    guard let url = Bundle.main.url(forResource: "logo", withExtension: "png") else { return nil }
+    return NSImage(contentsOf: url)
+}
+
+private final class UsageMenuContext: NSObject {
+    let providerKey: String
+    let providerName: String
+    let planName: String
+    let snapshot: UsageSnapshot
+
+    init(providerKey: String, providerName: String, planName: String, snapshot: UsageSnapshot) {
+        self.providerKey = providerKey
+        self.providerName = providerName
+        self.planName = planName
+        self.snapshot = snapshot
+    }
+
+    var usage: ProviderUsage {
+        providerKey == "codex" ? snapshot.codexUsage : snapshot.claudeUsage
+    }
+}
+
 @MainActor
 final class UsageBarController: NSObject, NSApplicationDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -1154,6 +1714,20 @@ final class UsageBarController: NSObject, NSApplicationDelegate {
         NSWorkspace.shared.open(url)
     }
 
+    @objc private func copyUsageSummaryFromMenu(_ sender: NSMenuItem) {
+        guard let context = sender.representedObject as? UsageMenuContext else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(usageSummaryText(snapshot: context.snapshot), forType: .string)
+    }
+
+    @objc private func createImageSnapshotFromMenu(_ sender: NSMenuItem) {
+        guard let context = sender.representedObject as? UsageMenuContext,
+              let url = createSnapshotPNG(snapshot: context.snapshot)
+        else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
     private func feedbackEmailBody() -> String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
@@ -1163,6 +1737,162 @@ final class UsageBarController: NSObject, NSApplicationDelegate {
 ---
 Coco Usage Bar \(version) (\(build))
 """
+    }
+
+    private func usageSummaryText(snapshot: UsageSnapshot) -> String {
+        var lines = [
+            "Coco Usage Bar — last 30 days",
+            "Generated \(dateTime(snapshot.generatedAt))",
+            ""
+        ]
+
+        if snapshot.codexUsage.thirtyDays.totalTokens > 0 {
+            lines.append(providerSummaryLine(name: "Codex", usage: snapshot.codexUsage))
+        }
+        if snapshot.claudeUsage.thirtyDays.totalTokens > 0 {
+            lines.append(providerSummaryLine(name: "Claude Code", usage: snapshot.claudeUsage))
+        }
+
+        lines.append("")
+        lines.append("Estimated from local token logs using public API pricing. Not an invoice.")
+        return lines.joined(separator: "\n")
+    }
+
+    private func providerSummaryLine(name: String, usage: ProviderUsage) -> String {
+        let window = usage.thirtyDays
+        var parts = [
+            "\(name): \(exactTokens(window.totalTokens)) raw tokens",
+            "\(cacheShare(window)) cached",
+            "estimated cost \(exactDollars(window.estimatedCostUSD))"
+        ]
+        if window.sessionCount > 0 {
+            parts.append("\(exactCount(window.sessionCount)) sessions")
+        }
+        if let source = compactBreakdown(window.sourceTokens, total: window.totalTokens) {
+            parts.append(source)
+        }
+        return "- " + parts.joined(separator: " · ")
+    }
+
+    private func createSnapshotPNG(snapshot: UsageSnapshot) -> URL? {
+        let image = snapshotImage(snapshot: snapshot)
+        guard let tiff = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff),
+              let png = bitmap.representation(using: .png, properties: [:])
+        else { return nil }
+
+        let fileManager = FileManager.default
+        let support = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("CocoUsageBar", isDirectory: true)
+            .appendingPathComponent("Snapshots", isDirectory: true)
+        do {
+            try fileManager.createDirectory(at: support, withIntermediateDirectories: true)
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyyMMdd-HHmmss"
+            let url = support.appendingPathComponent("CocoUsageSnapshot-\(formatter.string(from: Date())).png")
+            try png.write(to: url, options: [.atomic])
+
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.writeObjects([image])
+            pasteboard.setString(url.absoluteString, forType: .fileURL)
+            return url
+        } catch {
+            return nil
+        }
+    }
+
+    private func snapshotImage(snapshot: UsageSnapshot) -> NSImage {
+        let size = NSSize(width: 900, height: 520)
+        let image = NSImage(size: size)
+        image.lockFocus()
+        defer { image.unlockFocus() }
+
+        NSColor(calibratedWhite: 0.055, alpha: 1).setFill()
+        NSRect(origin: .zero, size: size).fill()
+
+        drawRoundedRect(NSRect(x: 28, y: 28, width: size.width - 56, height: size.height - 56), radius: 28, color: NSColor(calibratedWhite: 0.09, alpha: 1))
+        if let mascot = mascotImage() {
+            mascot.draw(in: topRect(x: 58, y: 58, width: 72, height: 72, canvasHeight: size.height), from: .zero, operation: .sourceOver, fraction: 1)
+        }
+
+        drawText("Coco Usage Snapshot", x: 148, top: 62, width: 500, height: 30, canvasHeight: size.height, font: .systemFont(ofSize: 27, weight: .bold), color: .white)
+        drawText("Last 30 days · \(dateOnly(snapshot.generatedAt))", x: 150, top: 97, width: 420, height: 20, canvasHeight: size.height, font: .systemFont(ofSize: 15, weight: .regular), color: NSColor.secondaryLabelColor)
+        drawText("local only", x: 720, top: 72, width: 120, height: 22, canvasHeight: size.height, font: .systemFont(ofSize: 14, weight: .semibold), color: providerAccentColor(iconName: "codex-mark"), alignment: .right)
+
+        let codexRect = NSRect(x: 58, y: 245, width: 378, height: 150)
+        let claudeRect = NSRect(x: 464, y: 245, width: 378, height: 150)
+        if snapshot.codexUsage.thirtyDays.totalTokens > 0 {
+            drawProviderCard(name: "Codex", plan: snapshot.codexLimits?.planType ?? "local logs", usage: snapshot.codexUsage, accent: providerAccentColor(iconName: "codex-mark"), rect: codexRect, canvasHeight: size.height)
+        }
+        if snapshot.claudeUsage.thirtyDays.totalTokens > 0 {
+            drawProviderCard(name: "Claude Code", plan: snapshot.claudeLimits?.planType ?? "local logs", usage: snapshot.claudeUsage, accent: providerAccentColor(iconName: "claude-mark"), rect: claudeRect, canvasHeight: size.height)
+        }
+
+        let statsY: CGFloat = 338
+        drawStatPill(title: "Codex sessions", value: snapshot.codexUsage.thirtyDays.sessionCount > 0 ? exactCount(snapshot.codexUsage.thirtyDays.sessionCount) : "n/a", x: 58, top: statsY, canvasHeight: size.height)
+        drawStatPill(title: "Heaviest day", value: heaviestDay(snapshot.codexUsage.thirtyDays) ?? "n/a", x: 304, top: statsY, canvasHeight: size.height)
+        drawStatPill(title: "Source split", value: compactBreakdown(snapshot.codexUsage.thirtyDays.sourceTokens, total: snapshot.codexUsage.thirtyDays.totalTokens) ?? "n/a", x: 550, top: statsY, canvasHeight: size.height)
+
+        drawText("Estimated from local token logs · public API pricing · not an invoice · prompts and local filenames excluded",
+                 x: 58,
+                 top: 456,
+                 width: 784,
+                 height: 20,
+                 canvasHeight: size.height,
+                 font: .systemFont(ofSize: 13, weight: .regular),
+                 color: NSColor.tertiaryLabelColor)
+        return image
+    }
+
+    private func drawProviderCard(name: String, plan: String, usage: ProviderUsage, accent: NSColor, rect: NSRect, canvasHeight: CGFloat) {
+        let drawRect = topRect(x: rect.origin.x, y: rect.origin.y, width: rect.width, height: rect.height, canvasHeight: canvasHeight)
+        drawRoundedRect(drawRect, radius: 18, color: NSColor(calibratedWhite: 0.12, alpha: 1))
+        drawText(name, x: rect.origin.x + 20, top: rect.origin.y + 18, width: 180, height: 22, canvasHeight: canvasHeight, font: .systemFont(ofSize: 18, weight: .bold), color: .white)
+        drawText(plan, x: rect.origin.x + rect.width - 160, top: rect.origin.y + 20, width: 138, height: 18, canvasHeight: canvasHeight, font: .systemFont(ofSize: 13, weight: .semibold), color: accent, alignment: .right)
+        drawText(compactTokens(usage.thirtyDays.totalTokens), x: rect.origin.x + 20, top: rect.origin.y + 58, width: 160, height: 38, canvasHeight: canvasHeight, font: .systemFont(ofSize: 35, weight: .heavy), color: .white)
+        drawText("raw tokens", x: rect.origin.x + 22, top: rect.origin.y + 99, width: 140, height: 18, canvasHeight: canvasHeight, font: .systemFont(ofSize: 13, weight: .regular), color: NSColor.secondaryLabelColor)
+        drawText("Estimated cost", x: rect.origin.x + 210, top: rect.origin.y + 60, width: 130, height: 18, canvasHeight: canvasHeight, font: .systemFont(ofSize: 13, weight: .regular), color: NSColor.secondaryLabelColor, alignment: .right)
+        drawText(compactDollars(usage.thirtyDays.estimatedCostUSD), x: rect.origin.x + 200, top: rect.origin.y + 82, width: 142, height: 28, canvasHeight: canvasHeight, font: .systemFont(ofSize: 25, weight: .bold), color: .white, alignment: .right)
+        drawText("\(cacheShare(usage.thirtyDays)) cached", x: rect.origin.x + 20, top: rect.origin.y + 122, width: 220, height: 18, canvasHeight: canvasHeight, font: .systemFont(ofSize: 13, weight: .medium), color: accent)
+    }
+
+    private func drawStatPill(title: String, value: String, x: CGFloat, top: CGFloat, canvasHeight: CGFloat) {
+        let rect = topRect(x: x, y: top, width: 210, height: 72, canvasHeight: canvasHeight)
+        drawRoundedRect(rect, radius: 14, color: NSColor(calibratedWhite: 0.12, alpha: 1))
+        drawText(value, x: x + 16, top: top + 14, width: 178, height: 24, canvasHeight: canvasHeight, font: .systemFont(ofSize: 18, weight: .bold), color: .white)
+        drawText(title, x: x + 16, top: top + 42, width: 178, height: 18, canvasHeight: canvasHeight, font: .systemFont(ofSize: 12, weight: .regular), color: NSColor.secondaryLabelColor)
+    }
+
+    private func drawRoundedRect(_ rect: NSRect, radius: CGFloat, color: NSColor) {
+        color.setFill()
+        NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
+    }
+
+    private func drawText(
+        _ text: String,
+        x: CGFloat,
+        top: CGFloat,
+        width: CGFloat,
+        height: CGFloat,
+        canvasHeight: CGFloat,
+        font: NSFont,
+        color: NSColor,
+        alignment: NSTextAlignment = .left
+    ) {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = alignment
+        paragraph.lineBreakMode = .byTruncatingTail
+        let rect = topRect(x: x, y: top, width: width, height: height, canvasHeight: canvasHeight)
+        (text as NSString).draw(in: rect, withAttributes: [
+            .font: font,
+            .foregroundColor: color,
+            .paragraphStyle: paragraph
+        ])
+    }
+
+    private func topRect(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat, canvasHeight: CGFloat) -> NSRect {
+        NSRect(x: x, y: canvasHeight - y - height, width: width, height: height)
     }
 
     private func refreshInBackground(force: Bool = false) {
@@ -1244,28 +1974,32 @@ Coco Usage Bar \(version) (\(build))
 
         if codexVisible {
             addProviderSection(
+                providerKey: "codex",
                 title: "Codex",
                 iconName: "codex-mark",
                 limits: snapshot.codexLimits,
                 usage: snapshot.codexUsage,
                 missingLimitDetail: "n/a",
                 referenceDate: snapshot.generatedAt,
+                snapshot: snapshot,
                 to: menu
             )
         }
 
         if codexVisible && claudeVisible {
-            addView(MenuSpacerView(height: 10), to: menu)
+            menu.addItem(.separator())
         }
 
         if claudeVisible {
             addProviderSection(
+                providerKey: "claude",
                 title: "Claude Code",
                 iconName: "claude-mark",
                 limits: snapshot.claudeLimits,
                 usage: snapshot.claudeUsage,
                 missingLimitDetail: "needs account",
                 referenceDate: snapshot.generatedAt,
+                snapshot: snapshot,
                 to: menu
             )
         }
@@ -1274,27 +2008,39 @@ Coco Usage Bar \(version) (\(build))
             addView(MenuCostRowView(label: "No local usage yet", value: "Refresh after a session"), to: menu)
         }
 
-        addView(MenuSpacerView(height: 6), to: menu)
-        addView(
-            MenuFooterView(
-                updatedText: "Updated \(timeOnly(snapshot.generatedAt))",
-                target: self,
-                refreshAction: #selector(refreshFromMenu),
-                feedbackAction: #selector(sendFeedbackFromMenu)
-            ),
-            to: menu
-        )
+        menu.addItem(.separator())
+        let updated = NSMenuItem(title: "Updated \(timeOnly(snapshot.generatedAt))", action: nil, keyEquivalent: "")
+        updated.isEnabled = false
+        menu.addItem(updated)
+
+        let refresh = NSMenuItem(title: "Refresh", action: #selector(refreshFromMenu), keyEquivalent: "r")
+        refresh.target = self
+        menu.addItem(refresh)
+
+        let update = NSMenuItem(title: "Check for Updates...", action: #selector(UpdaterController.checkForUpdates(_:)), keyEquivalent: "")
+        update.target = UpdaterController.shared
+        menu.addItem(update)
+
+        let feedback = NSMenuItem(title: "Send Feedback", action: #selector(sendFeedbackFromMenu), keyEquivalent: "")
+        feedback.target = self
+        menu.addItem(feedback)
+
+        let quit = NSMenuItem(title: "Quit Coco Usage Bar", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        quit.target = NSApp
+        menu.addItem(quit)
 
         return menu
     }
 
     private func addProviderSection(
+        providerKey: String,
         title: String,
         iconName: String,
         limits: CodexRateLimits?,
         usage: ProviderUsage,
         missingLimitDetail: String,
         referenceDate: Date,
+        snapshot: UsageSnapshot,
         to menu: NSMenu
     ) {
         let headerDetail = limits == nil ? "local logs" : (limits?.planType ?? "limits")
@@ -1323,10 +2069,110 @@ Coco Usage Bar \(version) (\(build))
 
         let thirtyDays = usage.thirtyDays
         if thirtyDays.totalTokens > 0 {
-            addView(MenuCostRowView(label: "30d tokens", value: compactTokens(thirtyDays.totalTokens)), to: menu)
+            menu.addItem(usageDetailMenuItem(
+                providerKey: providerKey,
+                providerName: title,
+                planName: headerDetail,
+                usage: usage,
+                snapshot: snapshot
+            ))
         } else {
-            addView(MenuCostRowView(label: "30d tokens", value: "No local tokens"), to: menu)
+            addView(MenuCostRowView(label: "30d raw tokens", value: "No local tokens"), to: menu)
         }
+    }
+
+    private func usageDetailMenuItem(
+        providerKey: String,
+        providerName: String,
+        planName: String,
+        usage: ProviderUsage,
+        snapshot: UsageSnapshot
+    ) -> NSMenuItem {
+        let window = usage.thirtyDays
+        let item = NSMenuItem(
+            title: "30d raw tokens    \(compactTokenSummary(window))",
+            action: nil,
+            keyEquivalent: ""
+        )
+        let context = UsageMenuContext(providerKey: providerKey, providerName: providerName, planName: planName, snapshot: snapshot)
+        let submenu = NSMenu()
+        submenu.autoenablesItems = false
+
+        addDisabledItem("\(providerName) details", to: submenu)
+        submenu.addItem(.separator())
+        addDetailRow("Raw tokens", exactTokens(window.totalTokens), to: submenu)
+        addDetailRow("Estimated cost", exactDollars(window.estimatedCostUSD), to: submenu)
+        addDetailRow("Pricing basis", pricingBasisSummary(window), to: submenu)
+        submenu.addItem(.separator())
+        addDetailRow("Input", exactTokens(window.inputTokens), to: submenu)
+        if window.cachedInputTokens > 0 {
+            addDetailRow("Cached input", exactTokens(window.cachedInputTokens), to: submenu)
+        }
+        if window.cacheWriteTokens > 0 {
+            addDetailRow("Cache write", exactTokens(window.cacheWriteTokens), to: submenu)
+        }
+        if window.cacheReadTokens > 0 {
+            addDetailRow("Cache read", exactTokens(window.cacheReadTokens), to: submenu)
+        }
+        addDetailRow("Output", exactTokens(window.outputTokens), to: submenu)
+        if window.reasoningTokens > 0 {
+            addDetailRow("Reasoning", exactTokens(window.reasoningTokens), to: submenu)
+        }
+        addDetailRow("Cache share", cacheShare(window), to: submenu)
+        submenu.addItem(.separator())
+        addDetailRow("Events", exactCount(window.eventCount), to: submenu)
+        if window.sessionCount > 0 {
+            addDetailRow("Sessions", exactCount(window.sessionCount), to: submenu)
+            addDetailRow("Avg / session", compactTokens(window.totalTokens / Int64(max(window.sessionCount, 1))), to: submenu)
+        }
+        if let heaviest = heaviestDay(window) {
+            addDetailRow("Heaviest day", heaviest, to: submenu)
+        }
+        if let source = compactBreakdown(window.sourceTokens, total: window.totalTokens) {
+            addDetailRow("Source split", source, to: submenu)
+        }
+        if let model = compactBreakdown(window.modelTokens, total: window.totalTokens) {
+            addDetailRow("Model split", model, to: submenu)
+        }
+        submenu.addItem(.separator())
+
+        let copy = NSMenuItem(title: "Copy summary", action: #selector(copyUsageSummaryFromMenu(_:)), keyEquivalent: "c")
+        copy.target = self
+        copy.representedObject = context
+        submenu.addItem(copy)
+
+        let image = NSMenuItem(title: "Create image snapshot", action: #selector(createImageSnapshotFromMenu(_:)), keyEquivalent: "")
+        image.target = self
+        image.representedObject = context
+        submenu.addItem(image)
+
+        addDisabledItem("Estimated from local token logs · not an invoice", to: submenu)
+        item.submenu = submenu
+        return item
+    }
+
+    private func addDisabledItem(_ title: String, to menu: NSMenu) {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.isEnabled = false
+        menu.addItem(item)
+    }
+
+    private func addDetailRow(_ label: String, _ value: String, to menu: NSMenu) {
+        let item = NSMenuItem(title: detailLine(label, value), action: nil, keyEquivalent: "")
+        item.isEnabled = false
+        item.attributedTitle = NSAttributedString(
+            string: detailLine(label, value),
+            attributes: [
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular),
+                .foregroundColor: NSColor.labelColor
+            ]
+        )
+        menu.addItem(item)
+    }
+
+    private func detailLine(_ label: String, _ value: String) -> String {
+        let padded = label.padding(toLength: 18, withPad: " ", startingAt: 0)
+        return "\(padded) \(value)"
     }
 
     private func rateView(
@@ -1373,12 +2219,12 @@ Coco Usage Bar \(version) (\(build))
 
     private func attributedValue(primary: String, suffix: String? = nil) -> NSAttributedString {
         let result = NSMutableAttributedString(string: primary, attributes: [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 14, weight: .semibold),
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 12.5, weight: .semibold),
             .foregroundColor: NSColor.labelColor
         ])
         if let suffix {
             result.append(NSAttributedString(string: suffix, attributes: [
-                .font: NSFont.systemFont(ofSize: 12.5, weight: .regular),
+                .font: NSFont.systemFont(ofSize: 12, weight: .regular),
                 .foregroundColor: NSColor.secondaryLabelColor
             ]))
         }
@@ -1387,7 +2233,7 @@ Coco Usage Bar \(version) (\(build))
 
     private func attributedDetail(_ value: String) -> NSAttributedString {
         NSAttributedString(string: value, attributes: [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 12.5, weight: .regular),
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular),
             .foregroundColor: NSColor.secondaryLabelColor
         ])
     }
@@ -1398,7 +2244,7 @@ Coco Usage Bar \(version) (\(build))
             .foregroundColor: NSColor.tertiaryLabelColor
         ])
         result.append(NSAttributedString(string: resetLabel(date), attributes: [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 12.5, weight: .regular),
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular),
             .foregroundColor: NSColor.secondaryLabelColor
         ]))
         return result
@@ -1430,6 +2276,75 @@ Coco Usage Bar \(version) (\(build))
         limits != nil || usage.thirtyDays.totalTokens > 0
     }
 
+    private func exactTokens(_ tokens: Int64) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.groupingSeparator = ","
+        return formatter.string(from: NSNumber(value: tokens)) ?? "\(tokens)"
+    }
+
+    private func exactCount(_ count: Int) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.groupingSeparator = ","
+        return formatter.string(from: NSNumber(value: count)) ?? "\(count)"
+    }
+
+    private func exactDollars(_ dollars: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = "USD"
+        formatter.maximumFractionDigits = dollars >= 1_000 ? 0 : 2
+        return formatter.string(from: NSNumber(value: dollars)) ?? String(format: "$%.2f", dollars)
+    }
+
+    private func cacheShare(_ window: TokenWindow) -> String {
+        let cached = window.cachedInputTokens + window.cacheReadTokens
+        guard window.totalTokens > 0, cached > 0 else { return "0%" }
+        return formatPercent(Double(cached) / Double(window.totalTokens) * 100)
+    }
+
+    private func pricingBasisSummary(_ window: TokenWindow) -> String {
+        guard let top = window.pricingBasisTokens.max(by: { $0.value < $1.value }) else {
+            return "Public API pricing"
+        }
+        if window.pricingBasisTokens.count == 1, window.fallbackPricedTokens == 0, window.unpricedTokens == 0 {
+            return top.key
+        }
+        var parts = ["Mixed public API pricing"]
+        if window.fallbackPricedTokens > 0 {
+            parts.append("\(compactTokens(window.fallbackPricedTokens)) fallback")
+        }
+        if window.unpricedTokens > 0 {
+            parts.append("\(compactTokens(window.unpricedTokens)) unpriced")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private func heaviestDay(_ window: TokenWindow) -> String? {
+        guard let entry = window.dayTokens.max(by: { $0.value < $1.value }) else { return nil }
+        let input = DateFormatter()
+        input.calendar = Calendar(identifier: .gregorian)
+        input.locale = Locale(identifier: "en_US_POSIX")
+        input.dateFormat = "yyyy-MM-dd"
+        let output = DateFormatter()
+        output.dateFormat = "d MMM"
+        let label = input.date(from: entry.key).map { output.string(from: $0) } ?? entry.key
+        return "\(label) · \(compactTokens(entry.value))"
+    }
+
+    private func compactBreakdown(_ values: [String: Int64], total: Int64) -> String? {
+        guard total > 0, !values.isEmpty else { return nil }
+        return values
+            .sorted { $0.value > $1.value }
+            .prefix(2)
+            .map { key, value in
+                let percent = Double(value) / Double(total) * 100
+                return "\(key) \(formatPercent(percent))"
+            }
+            .joined(separator: " · ")
+    }
+
     private func compactTokens(_ tokens: Int64) -> String {
         let value = Double(tokens)
         switch tokens {
@@ -1442,6 +2357,17 @@ Coco Usage Bar \(version) (\(build))
         default:
             return "\(tokens)"
         }
+    }
+
+    private func compactTokenSummary(_ window: TokenWindow) -> String {
+        let total = window.totalTokens
+        let cached = window.cachedInputTokens + window.cacheReadTokens
+        guard total > 0, cached > 0 else { return compactTokens(total) }
+
+        let cachedPercent = Double(cached) / Double(total) * 100
+        guard cachedPercent >= 1 else { return compactTokens(total) }
+
+        return "\(compactTokens(total)), \(Int(cachedPercent.rounded()))% cached"
     }
 
     private func compactDollars(_ dollars: Double) -> String {
@@ -1464,6 +2390,20 @@ Coco Usage Bar \(version) (\(build))
             return "\(Int(percent))%"
         }
         return String(format: "%.1f%%", percent)
+    }
+
+    private func dateTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+
+    private func dateOnly(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter.string(from: date)
     }
 
     private func timeOnly(_ date: Date) -> String {
