@@ -25,6 +25,10 @@ The script:
 
 Do not publish the release as a draft or prerelease. GitHub's `latest` redirect skips those, which would strand the appcast.
 
+## Landing Page Screenshot
+
+Before publishing a visible release, refresh `docs/assets/menu-preview.png` from a real Mac desktop screenshot with the Coco menu open. Keep the browser/source app out of the capture when possible; the ideal frame shows the macOS menu bar, the Coco status item, and the opened Coco menu over Adrien's desktop wallpaper.
+
 ## First Install Caveat
 
 This free path is not notarized. macOS may require right-click > Open once after dragging the app to Applications. Auto-updates after that are Sparkle-signed.

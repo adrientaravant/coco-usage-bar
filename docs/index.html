@@ -287,8 +287,21 @@
     .meta b { color: var(--quiet); font-weight: 700; }
     .meta .sep { width: 3px; height: 3px; border-radius: 50%; background: oklch(100% 0 0 / 0.22); }
 
-    /* ── right: the popover, hanging from the pill (offset past the clock) ── */
-    .preview { align-self: start; justify-self: end; width: min(360px, 100%); margin-right: 74px; }
+    /* ── right: real macOS capture with the menu open ── */
+    .preview {
+      align-self: center;
+      justify-self: end;
+      width: min(560px, 100%);
+      margin-right: 18px;
+    }
+
+    .preview img {
+      display: block;
+      width: 100%;
+      height: auto;
+      border-radius: 26px;
+      box-shadow: 0 32px 90px oklch(1% 0.01 280 / 0.62), 0 0 0 1px oklch(100% 0 0 / 0.09);
+    }
 
     .popover {
       position: relative;
@@ -513,11 +526,24 @@
       .frame { height: auto; }
       .hero {
         grid-template-columns: 1fr;
-        gap: 30px;
+        gap: 24px;
         padding: 8px 0 4px;
       }
       .copy { align-self: stretch; }
-      .preview { align-self: stretch; justify-self: stretch; width: min(420px, 100%); margin-right: 0; }
+      .preview {
+        align-self: stretch;
+        justify-self: stretch;
+        width: min(342px, 100%);
+        max-height: 240px;
+        margin-right: 0;
+        overflow: hidden;
+        border-radius: 22px;
+        box-shadow: 0 24px 70px oklch(1% 0.01 280 / 0.58), 0 0 0 1px oklch(100% 0 0 / 0.09);
+      }
+      .preview img {
+        border-radius: inherit;
+        box-shadow: none;
+      }
       .popover::before { display: none; }
       .band { grid-template-columns: 1fr; gap: 16px; }
       .band-item p { display: block; }
@@ -581,69 +607,8 @@
           </p>
         </div>
 
-        <div class="preview" aria-label="Coco Usage Bar menu preview">
-          <div class="popover">
-            <div class="provider" style="--provider-color: var(--mint)">
-              <div class="prov-head">
-                <div class="prov-name"><img src="assets/codex-mark.png" alt="">Codex</div>
-                <div class="provider-note">limits</div>
-              </div>
-              <div class="limit-list">
-              <div class="limit-row">
-                <span class="limit-name">5h</span>
-                <span class="limit-used"><strong>37%</strong> used</span>
-                <span class="limit-reset"><span>reset</span> 16:51</span>
-                <span class="rail"><span class="rail-fill" style="--value:37%"></span><span class="pace-tick" style="--pace:42%"></span></span>
-              </div>
-              <div class="limit-row">
-                <span class="limit-name">Weekly</span>
-                <span class="limit-used"><strong>6%</strong> used</span>
-                <span class="limit-reset"><span>reset</span> 6 Jul</span>
-                <span class="rail"><span class="rail-fill" style="--value:6%"></span><span class="pace-tick" style="--pace:10%"></span></span>
-              </div>
-              </div>
-              <div class="token-row">
-                <strong>30d tokens</strong>
-                <span>630.8M</span>
-              </div>
-            </div>
-
-            <div class="provider" style="--provider-color: var(--amber)">
-              <div class="prov-head">
-                <div class="prov-name"><img src="assets/claude-mark.png" alt="">Claude Code</div>
-                <div class="provider-note">OAuth</div>
-              </div>
-              <div class="limit-list">
-              <div class="limit-row">
-                <span class="limit-name">5h</span>
-                <span class="limit-used"><strong>0%</strong> used</span>
-                <span class="limit-reset"><span>reset</span> now</span>
-                <span class="rail"><span class="rail-fill" style="--value:0%"></span><span class="pace-tick" style="--pace:96%"></span></span>
-              </div>
-              <div class="limit-row">
-                <span class="limit-name">Weekly</span>
-                <span class="limit-used"><strong>0%</strong> used</span>
-                <span class="limit-reset"><span>reset</span> 4 Jul</span>
-                <span class="rail"><span class="rail-fill" style="--value:0%"></span><span class="pace-tick" style="--pace:28%"></span></span>
-              </div>
-              </div>
-              <div class="token-row">
-                <strong>30d tokens</strong>
-                <span>2.6B</span>
-              </div>
-            </div>
-
-            <div class="pop-foot">
-              <span class="updated">Updated 16:46</span>
-              <span class="refresh">
-                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path d="M21 12a9 9 0 1 1-2.64-6.36" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                  <path d="M21 4v6h-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-                Refresh
-              </span>
-            </div>
-          </div>
+        <div class="preview" aria-label="Coco Usage Bar open in the macOS menu bar">
+          <img src="assets/menu-preview.png" width="816" height="938" alt="Coco Usage Bar menu open on macOS, showing Codex and Claude Code usage bars, reset times, pace markers, and 30-day raw token volume.">
         </div>
       </section>
 
