@@ -31,7 +31,7 @@ final class UpdaterController: NSObject, SPUUpdaterDelegate {
 
     var menuTitle: String {
         if availableVersion != nil {
-            return "Update ready, sync?"
+            return "Update ready — Install & Relaunch"
         }
         if isChecking {
             return "Checking for Updates..."

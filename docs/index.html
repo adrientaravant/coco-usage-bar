@@ -5,6 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Coco Usage Bar — Codex &amp; Claude Code limits in your menu bar</title>
   <meta name="description" content="A tiny macOS menu bar app that shows Codex and Claude Code usage — 5-hour and weekly limits, pace, reset times, and 30-day tokens. Local by default, open source.">
+  <link rel="canonical" href="https://adrientaravant.github.io/coco-usage-bar/">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://adrientaravant.github.io/coco-usage-bar/">
+  <meta property="og:title" content="Coco Usage Bar — Codex &amp; Claude Code limits in your menu bar">
+  <meta property="og:description" content="5-hour and weekly limits, pace, reset times, and 30-day tokens for Codex and Claude Code — one glance in your macOS menu bar. Local by default, open source.">
+  <meta property="og:image" content="https://adrientaravant.github.io/coco-usage-bar/assets/menu-preview.png">
+  <meta property="og:image:width" content="816">
+  <meta property="og:image:height" content="938">
+  <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" href="assets/logo.webp" type="image/webp">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -182,6 +191,26 @@
 
     <div class="feature-row">
       <div class="row-text">
+        <p class="eyebrow">What it's worth</p>
+        <h2 class="heading">Know what your plan is worth</h2>
+        <p class="body">Coco prices every token in your local logs at public API rates. The details panel shows the <b>estimated API-equivalent cost</b> of your last 30 days — the clearest answer to "is the subscription paying for itself?".</p>
+      </div>
+      <div class="row-viz">
+        <div class="viz viz-cost">
+          <div class="cost-big">US$3,053</div>
+          <div class="cost-cap">per 30 days · estimated API-equivalent</div>
+          <div class="cost-sub">2.8B raw tokens · 94% cached</div>
+          <div class="cost-bars">
+            <div style="width:80.4%"><div class="bar" style="background:var(--claude)"></div><span class="cap">claude-opus-4-8 · 80.4%</span></div>
+            <div style="width:19.6%"><div class="bar" style="background:color-mix(in oklch, var(--claude) 45%, transparent)"></div><span class="cap">fable-5 · 18.5%</span></div>
+          </div>
+          <p class="cost-fn">estimated from local token logs · not an invoice</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="feature-row is-flipped">
+      <div class="row-text">
         <p class="eyebrow">Two providers · four windows</p>
         <h2 class="heading">Codex and Claude Code, 5-hour and weekly</h2>
         <p class="body">Every limit that can actually stop you, in one place. Each provider shows its short 5-hour window and the rolling weekly one, colored so you never mix them up — <b style="color:var(--codex)">teal for Codex</b>, <b style="color:var(--claude)">amber for Claude Code</b>.</p>
@@ -204,6 +233,19 @@
             <div class="ct"><span>Claude wk</span><b>7%</b></div>
             <div class="cr"><i style="width:7%;background:var(--claude)"></i></div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="feature-row">
+      <div class="row-text">
+        <p class="eyebrow">The real thing</p>
+        <h2 class="heading">Exactly what you'll get</h2>
+        <p class="body">No mockups — this is the menu as it renders on macOS. The pill in the bar, both providers, pace ticks and resets, one click away and always current.</p>
+      </div>
+      <div class="row-viz">
+        <div class="viz is-flush viz-shot">
+          <img src="assets/menu-preview.webp" width="731" height="840" alt="The actual Coco Usage Bar menu open on macOS, showing Codex and Claude Code usage" loading="lazy">
         </div>
       </div>
     </div>

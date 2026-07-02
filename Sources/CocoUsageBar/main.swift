@@ -1369,19 +1369,20 @@ private final class MenuHeaderView: NSView {
 private final class MenuLimitRowView: NSView {
     private let usedPercent: Double?
     private let pacePercent: Double?
-    private let providerColor: NSColor
+    private let fillColor: NSColor
 
     init(
         label: String,
         value: NSAttributedString,
+        trajectory: NSAttributedString? = nil,
         detail: NSAttributedString,
         usedPercent: Double?,
         pacePercent: Double?,
-        providerColor: NSColor
+        fillColor: NSColor
     ) {
         self.usedPercent = usedPercent
         self.pacePercent = pacePercent
-        self.providerColor = providerColor
+        self.fillColor = fillColor
         super.init(frame: NSRect(x: 0, y: 0, width: MenuLayout.width, height: usedPercent == nil ? 28 : 38))
         wantsLayer = true
 
@@ -1412,10 +1413,24 @@ private final class MenuLimitRowView: NSView {
             valueView.topAnchor.constraint(equalTo: labelView.topAnchor),
             valueView.widthAnchor.constraint(equalToConstant: 72),
 
-            detailView.leadingAnchor.constraint(greaterThanOrEqualTo: valueView.trailingAnchor, constant: 8),
             detailView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -MenuLayout.horizontalPadding),
             detailView.topAnchor.constraint(equalTo: labelView.topAnchor)
         ])
+
+        if let trajectory {
+            let trajectoryView = NSTextField(labelWithAttributedString: trajectory)
+            trajectoryView.lineBreakMode = .byTruncatingTail
+            trajectoryView.translatesAutoresizingMaskIntoConstraints = false
+            trajectoryView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            addSubview(trajectoryView)
+            NSLayoutConstraint.activate([
+                trajectoryView.leadingAnchor.constraint(equalTo: valueView.trailingAnchor, constant: 9),
+                trajectoryView.firstBaselineAnchor.constraint(equalTo: valueView.firstBaselineAnchor),
+                detailView.leadingAnchor.constraint(greaterThanOrEqualTo: trajectoryView.trailingAnchor, constant: 8)
+            ])
+        } else {
+            detailView.leadingAnchor.constraint(greaterThanOrEqualTo: valueView.trailingAnchor, constant: 8).isActive = true
+        }
     }
 
     override var isFlipped: Bool { true }
@@ -1435,7 +1450,7 @@ private final class MenuLimitRowView: NSView {
         let usedRatio = max(0, min(usedPercent / 100, 1))
         let fillWidth = usedRatio == 0 ? 3 : max(3, railWidth * usedRatio)
         let fillRect = NSRect(x: railX, y: railY, width: fillWidth, height: railHeight)
-        providerColor.withAlphaComponent(0.9).setFill()
+        fillColor.withAlphaComponent(0.9).setFill()
         NSBezierPath(roundedRect: fillRect, xRadius: railHeight / 2, yRadius: railHeight / 2).fill()
 
         guard let pacePercent else { return }
@@ -1546,6 +1561,126 @@ private final class DetailRowView: NSView {
             valueView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -DetailMenuLayout.horizontalPadding),
             valueView.centerYAnchor.constraint(equalTo: centerYAnchor)
         ])
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+}
+
+/// Quiet uppercase caption that names a group of detail rows (Totals / Token mix / Activity).
+private final class DetailGroupHeaderView: NSView {
+    init(title: String) {
+        super.init(frame: NSRect(x: 0, y: 0, width: DetailMenuLayout.width, height: 24))
+
+        let label = NSTextField(labelWithAttributedString: NSAttributedString(
+            string: title.uppercased(),
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 10.5, weight: .semibold),
+                .foregroundColor: NSColor.tertiaryLabelColor,
+                .kern: 0.8
+            ]
+        ))
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: DetailMenuLayout.horizontalPadding),
+            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -3)
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+}
+
+/// 30-day activity sparkline built from `TokenWindow.dayTokens`, normalized to the last
+/// 30 calendar days with explicit zero-days so gaps read as "no usage", not compression.
+private final class DetailSparklineRowView: NSView {
+    private let values: [Int64]
+    private let peakIndex: Int?
+    private let accent: NSColor
+
+    init(dayTokens: [String: Int64], accent: NSColor, endDate: Date) {
+        let calendar = Calendar.current
+        let keyFormatter = DateFormatter()
+        keyFormatter.calendar = Calendar(identifier: .gregorian)
+        keyFormatter.locale = Locale(identifier: "en_US_POSIX")
+        keyFormatter.dateFormat = "yyyy-MM-dd"
+        let labelFormatter = DateFormatter()
+        labelFormatter.dateFormat = "d MMM"
+
+        let endDay = calendar.startOfDay(for: endDate)
+        let days = (-29...0).compactMap { calendar.date(byAdding: .day, value: $0, to: endDay) }
+        let values = days.map { dayTokens[keyFormatter.string(from: $0)] ?? 0 }
+        self.values = values
+        self.accent = accent
+
+        var peakIndex: Int?
+        if let maxValue = values.max(), maxValue > 0 {
+            peakIndex = values.firstIndex(of: maxValue)
+        }
+        self.peakIndex = peakIndex
+
+        super.init(frame: NSRect(x: 0, y: 0, width: DetailMenuLayout.width, height: 62))
+
+        func caption(_ text: String) -> NSTextField {
+            let label = NSTextField(labelWithString: text)
+            label.font = .systemFont(ofSize: 10.5, weight: .regular)
+            label.textColor = .tertiaryLabelColor
+            label.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(label)
+            return label
+        }
+
+        let start = caption(days.first.map(labelFormatter.string(from:)) ?? "")
+        let end = caption(days.last.map(labelFormatter.string(from:)) ?? "")
+        NSLayoutConstraint.activate([
+            start.leadingAnchor.constraint(equalTo: leadingAnchor, constant: DetailMenuLayout.horizontalPadding),
+            start.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+            end.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -DetailMenuLayout.horizontalPadding),
+            end.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4)
+        ])
+
+        if let peakIndex {
+            let peakDay = labelFormatter.string(from: days[peakIndex])
+            let peak = caption("peak \(peakDay) · \(formatTokens(values[peakIndex]))")
+            NSLayoutConstraint.activate([
+                peak.centerXAnchor.constraint(equalTo: centerXAnchor),
+                peak.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4)
+            ])
+        }
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard let maxValue = values.max(), maxValue > 0 else { return }
+
+        let inset = DetailMenuLayout.horizontalPadding
+        let areaWidth = bounds.width - inset * 2
+        let areaHeight: CGFloat = 34
+        let areaBottom: CGFloat = 6 + areaHeight
+        let gap: CGFloat = 2
+        let barWidth = (areaWidth - gap * CGFloat(values.count - 1)) / CGFloat(values.count)
+
+        for (index, value) in values.enumerated() {
+            let x = inset + CGFloat(index) * (barWidth + gap)
+            let ratio = CGFloat(value) / CGFloat(maxValue)
+            let height = max(areaHeight * ratio, 1.5)
+            let rect = NSRect(x: x, y: areaBottom - height, width: barWidth, height: height)
+            let color: NSColor = if value == 0 {
+                accent.withAlphaComponent(0.18)
+            } else if index == peakIndex {
+                accent
+            } else {
+                accent.withAlphaComponent(0.55)
+            }
+            color.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: 1, yRadius: 1).fill()
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -2020,17 +2155,17 @@ Coco Usage Bar \(version) (\(build))
     }
 
     private func attributedTitle(for snapshot: UsageSnapshot) -> NSAttributedString {
-        var providers: [(icon: String, fallback: String, metric: String)] = []
+        var providers: [(icon: String, fallback: String, metric: String, severity: UsageSeverity)] = []
         if let metric = statusMetric(limits: snapshot.codexLimits, usage: snapshot.codexUsage, allowTokenFallback: true) {
-            providers.append(("codex-mark", "⌘", metric))
+            providers.append(("codex-mark", "⌘", metric.text, metric.severity))
         }
         if let metric = statusMetric(limits: snapshot.claudeLimits, usage: snapshot.claudeUsage, allowTokenFallback: false) {
-            providers.append(("claude-mark", "✦", metric))
+            providers.append(("claude-mark", "✦", metric.text, metric.severity))
         }
         return statusTitle(providers: providers)
     }
 
-    private func statusTitle(providers: [(icon: String, fallback: String, metric: String)]) -> NSAttributedString {
+    private func statusTitle(providers: [(icon: String, fallback: String, metric: String, severity: UsageSeverity)]) -> NSAttributedString {
         let result = NSMutableAttributedString()
         guard !providers.isEmpty else {
             appendText("--", to: result)
@@ -2042,7 +2177,14 @@ Coco Usage Bar \(version) (\(build))
                 appendText("  ·  ", to: result)
             }
             appendProviderMark(provider.icon, fallback: provider.fallback, to: result)
-            appendText(" \(provider.metric)", to: result)
+            // Escalating windows get the warning color plus a heavier weight, so the
+            // signal survives even where the color washes out against the wallpaper.
+            appendText(
+                " \(provider.metric)",
+                color: severityColor(provider.severity),
+                weight: provider.severity == .normal ? .medium : .semibold,
+                to: result
+            )
         }
         return result
     }
@@ -2059,12 +2201,17 @@ Coco Usage Bar \(version) (\(build))
         result.append(NSAttributedString(attachment: attachment))
     }
 
-    private func appendText(_ text: String, to result: NSMutableAttributedString) {
+    private func appendText(
+        _ text: String,
+        color: NSColor? = nil,
+        weight: NSFont.Weight = .medium,
+        to result: NSMutableAttributedString
+    ) {
         result.append(NSAttributedString(
             string: text,
             attributes: [
-                .font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .medium),
-                .foregroundColor: NSColor.labelColor
+                .font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: weight),
+                .foregroundColor: color ?? NSColor.labelColor
             ]
         ))
     }
@@ -2206,11 +2353,22 @@ Coco Usage Bar \(version) (\(build))
         submenu.autoenablesItems = false
 
         addDetailTitle("\(providerName) details", to: submenu)
+        if !window.dayTokens.isEmpty {
+            addView(
+                DetailSparklineRowView(
+                    dayTokens: window.dayTokens,
+                    accent: providerAccentColor(iconName: providerKey == "claude" ? "claude-mark" : "codex-mark"),
+                    endDate: snapshot.generatedAt
+                ),
+                to: submenu
+            )
+        }
         submenu.addItem(.separator())
+        addDetailGroupHeader("Totals", to: submenu)
         addDetailRow("Raw tokens", exactTokens(window.totalTokens), to: submenu)
         addDetailRow("Estimated cost", exactDollars(window.estimatedCostUSD), to: submenu)
         addDetailRow("Pricing basis", pricingBasisSummary(window), to: submenu)
-        submenu.addItem(.separator())
+        addDetailGroupHeader("Token mix", to: submenu)
         addDetailRow("Input", exactTokens(window.inputTokens), to: submenu)
         if window.cachedInputTokens > 0 {
             addDetailRow("Cached input", exactTokens(window.cachedInputTokens), to: submenu)
@@ -2226,7 +2384,7 @@ Coco Usage Bar \(version) (\(build))
             addDetailRow("Reasoning", exactTokens(window.reasoningTokens), to: submenu)
         }
         addDetailRow("Cache share", cacheShare(window), to: submenu)
-        submenu.addItem(.separator())
+        addDetailGroupHeader("Activity", to: submenu)
         addDetailRow("Events", exactCount(window.eventCount), to: submenu)
         if window.sessionCount > 0 {
             addDetailRow("Sessions", exactCount(window.sessionCount), to: submenu)
@@ -2266,6 +2424,10 @@ Coco Usage Bar \(version) (\(build))
         addView(DetailRowView(label: label, value: value), to: menu)
     }
 
+    private func addDetailGroupHeader(_ title: String, to menu: NSMenu) {
+        addView(DetailGroupHeaderView(title: title), to: menu)
+    }
+
     private func addDetailFootnote(_ title: String, to menu: NSMenu) {
         addView(DetailFootnoteRowView(text: title), to: menu)
     }
@@ -2284,19 +2446,78 @@ Coco Usage Bar \(version) (\(build))
                 detail: attributedDetail(missingDetail),
                 usedPercent: nil,
                 pacePercent: nil,
-                providerColor: providerColor
+                fillColor: providerColor
             )
         }
 
-        let detail = window.resetsAt.map { attributedResetDetail($0) } ?? attributedDetail("reset n/a")
-        return MenuLimitRowView(
+        let detail = window.resetsAt.map { attributedResetDetail($0, referenceDate: referenceDate) }
+            ?? attributedDetail("reset n/a")
+        let severity = usageSeverity(usedPercent: percent)
+        let pace = pacePercent(for: window, at: referenceDate)
+        let row = MenuLimitRowView(
             label: label,
-            value: attributedValue(primary: formatPercent(percent), suffix: " used"),
+            value: attributedValue(primary: formatPercent(percent), suffix: " used", color: severityColor(severity)),
+            trajectory: trajectoryLabel(for: window, usedPercent: percent, pacePercent: pace, referenceDate: referenceDate),
             detail: detail,
             usedPercent: percent,
-            pacePercent: pacePercent(for: window, at: referenceDate),
-            providerColor: providerColor
+            pacePercent: pace,
+            fillColor: severityColor(severity) ?? providerColor
         )
+        if let resetsAt = window.resetsAt {
+            row.toolTip = "Resets at \(dateTime(resetsAt))"
+        }
+        return row
+    }
+
+    private enum UsageSeverity {
+        case normal
+        case warning
+        case critical
+    }
+
+    private func usageSeverity(usedPercent: Double) -> UsageSeverity {
+        if usedPercent >= 90 { return .critical }
+        if usedPercent >= 75 { return .warning }
+        return .normal
+    }
+
+    private func severityColor(_ severity: UsageSeverity) -> NSColor? {
+        switch severity {
+        case .normal: return nil
+        case .warning: return .systemOrange
+        case .critical: return .systemRed
+        }
+    }
+
+    /// Plain-language trajectory shown only when the window is trending toward its limit.
+    /// Guarded against just-reset windows (elapsed < 5%) and windows whose reset is already past.
+    private func trajectoryLabel(
+        for window: RateWindow,
+        usedPercent: Double,
+        pacePercent: Double?,
+        referenceDate: Date
+    ) -> NSAttributedString? {
+        guard let resetsAt = window.resetsAt, resetsAt > referenceDate else { return nil }
+        if usedPercent >= 90 {
+            return attributedTrajectory("limit before reset", color: .systemRed)
+        }
+        guard let pacePercent, pacePercent >= 5 else { return nil }
+
+        let projected = usedPercent / pacePercent * 100
+        if projected >= 100 {
+            return attributedTrajectory("limit before reset", color: .systemRed)
+        }
+        if projected >= 75 {
+            return attributedTrajectory("heading to limit", color: .systemOrange)
+        }
+        return nil
+    }
+
+    private func attributedTrajectory(_ text: String, color: NSColor) -> NSAttributedString {
+        NSAttributedString(string: text, attributes: [
+            .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
+            .foregroundColor: color
+        ])
     }
 
     private func addView(_ view: NSView, to menu: NSMenu) {
@@ -2312,10 +2533,10 @@ Coco Usage Bar \(version) (\(build))
         return NSColor(calibratedRed: 0.42, green: 0.84, blue: 0.78, alpha: 1)
     }
 
-    private func attributedValue(primary: String, suffix: String? = nil) -> NSAttributedString {
+    private func attributedValue(primary: String, suffix: String? = nil, color: NSColor? = nil) -> NSAttributedString {
         let result = NSMutableAttributedString(string: primary, attributes: [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 12.5, weight: .semibold),
-            .foregroundColor: NSColor.labelColor
+            .foregroundColor: color ?? NSColor.labelColor
         ])
         if let suffix {
             result.append(NSAttributedString(string: suffix, attributes: [
@@ -2333,13 +2554,13 @@ Coco Usage Bar \(version) (\(build))
         ])
     }
 
-    private func attributedResetDetail(_ date: Date) -> NSAttributedString {
-        let result = NSMutableAttributedString(string: "reset ", attributes: [
+    private func attributedResetDetail(_ date: Date, referenceDate: Date) -> NSAttributedString {
+        let result = NSMutableAttributedString(string: "resets ", attributes: [
             .font: NSFont.systemFont(ofSize: 12, weight: .regular),
             .foregroundColor: NSColor.tertiaryLabelColor
         ])
-        result.append(NSAttributedString(string: resetLabel(date), attributes: [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular),
+        result.append(NSAttributedString(string: relativeResetLabel(date, from: referenceDate), attributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium),
             .foregroundColor: NSColor.secondaryLabelColor
         ]))
         return result
@@ -2357,12 +2578,16 @@ Coco Usage Bar \(version) (\(build))
         return max(0, min(elapsed / duration * 100, 100))
     }
 
-    private func statusMetric(limits: CodexRateLimits?, usage: ProviderUsage, allowTokenFallback: Bool) -> String? {
+    private func statusMetric(
+        limits: CodexRateLimits?,
+        usage: ProviderUsage,
+        allowTokenFallback: Bool
+    ) -> (text: String, severity: UsageSeverity)? {
         if let percent = limits?.primary?.usedPercent {
-            return formatPercent(percent)
+            return (formatPercent(percent), usageSeverity(usedPercent: percent))
         }
         if allowTokenFallback, usage.thirtyDays.totalTokens > 0 {
-            return compactTokens(usage.thirtyDays.totalTokens)
+            return (compactTokens(usage.thirtyDays.totalTokens), .normal)
         }
         return nil
     }
@@ -2510,32 +2735,21 @@ Coco Usage Bar \(version) (\(build))
         return formatter.string(from: date)
     }
 
-    private func resetLabel(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        if Calendar.current.isDateInToday(date) {
-            formatter.timeStyle = .short
-            formatter.dateStyle = .none
-            return formatter.string(from: date)
-        }
-        formatter.dateFormat = "d MMM"
-        return formatter.string(from: date)
-    }
+    private func relativeResetLabel(_ date: Date, from reference: Date) -> String {
+        let interval = date.timeIntervalSince(reference)
+        guard interval > 0 else { return "now" }
 
-    private func relativeReset(_ date: Date) -> String {
-        let interval = date.timeIntervalSinceNow
-        if interval > 0, interval < 24 * 60 * 60 {
-            let hours = Int(interval) / 3600
-            let minutes = (Int(interval) % 3600) / 60
-            if hours > 0 {
-                return "in \(hours)h \(minutes)m"
-            }
-            return "in \(max(minutes, 0))m"
+        let totalMinutes = Int(interval / 60)
+        if totalMinutes < 60 {
+            return "in \(max(totalMinutes, 1))m"
         }
-
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
+        if totalMinutes < 24 * 60 {
+            let hours = totalMinutes / 60
+            let minutes = totalMinutes % 60
+            return minutes == 0 ? "in \(hours)h" : "in \(hours)h \(minutes)m"
+        }
+        let days = max(Int((interval / 86_400).rounded()), 1)
+        return days == 1 ? "in 1 day" : "in \(days) days"
     }
 }
 
