@@ -180,6 +180,7 @@ struct CodexRateLimits: Codable {
     let planType: String?
     let primary: RateWindow?
     let secondary: RateWindow?
+    var limitId: String? = nil
 }
 
 struct UsageSnapshot: Codable {
@@ -499,7 +500,7 @@ final class UsageReader {
         thirtyDayCutoff: Date,
         todayStart: Date
     ) -> (limits: CodexRateLimits?, usage: ProviderUsage) {
-        var latestLimits: CodexRateLimits?
+        var latestLimitsByID: [String: CodexRateLimits] = [:]
         var usage = ProviderUsage()
         var seenLines = Set<String>()
         let searchRoots = roots.flatMap { codexSearchRoots(root: $0, from: thirtyDayCutoff, through: Date()) }
@@ -515,7 +516,7 @@ final class UsageReader {
                 file: file,
                 state: states.state(for: file),
                 thirtyDayCutoff: thirtyDayCutoff,
-                latestLimits: &latestLimits,
+                latestLimitsByID: &latestLimitsByID,
                 seenLines: &seenLines
             )
         }
@@ -530,7 +531,7 @@ final class UsageReader {
                         sevenDayCutoff: sevenDayCutoff,
                         thirtyDayCutoff: thirtyDayCutoff,
                         todayStart: todayStart,
-                        latestLimits: &latestLimits,
+                        latestLimitsByID: &latestLimitsByID,
                         usage: &usage,
                         seenLines: &seenLines
                     )
@@ -538,7 +539,7 @@ final class UsageReader {
             }
         }
 
-        return (latestLimits, usage)
+        return (selectCodexLimits(latestLimitsByID), usage)
     }
 
     private struct PendingCodexEvent {
@@ -583,7 +584,7 @@ final class UsageReader {
         file: URL,
         state: CodexFileState,
         thirtyDayCutoff: Date,
-        latestLimits: inout CodexRateLimits?,
+        latestLimitsByID: inout [String: CodexRateLimits],
         seenLines: inout Set<String>
     ) {
         if line.contains(#""model"#) {
@@ -614,9 +615,8 @@ final class UsageReader {
         else { return }
 
         if let rateLimits = payload["rate_limits"] as? [String: Any],
-           let parsed = parseCodexRateLimits(rateLimits, updatedAt: timestamp),
-           latestLimits == nil || parsed.updatedAt > latestLimits!.updatedAt {
-            latestLimits = parsed
+           let parsed = parseCodexRateLimits(rateLimits, updatedAt: timestamp) {
+            recordCodexLimit(parsed, into: &latestLimitsByID)
         }
 
         guard timestamp >= thirtyDayCutoff,
@@ -656,7 +656,7 @@ final class UsageReader {
         sevenDayCutoff: Date,
         thirtyDayCutoff: Date,
         todayStart: Date,
-        latestLimits: inout CodexRateLimits?,
+        latestLimitsByID: inout [String: CodexRateLimits],
         usage: inout ProviderUsage,
         seenLines: inout Set<String>
     ) {
@@ -700,9 +700,8 @@ final class UsageReader {
             else { return }
 
             if let rateLimits = payload["rate_limits"] as? [String: Any],
-               let parsed = parseCodexRateLimits(rateLimits, updatedAt: timestamp),
-               latestLimits == nil || parsed.updatedAt > latestLimits!.updatedAt {
-                latestLimits = parsed
+               let parsed = parseCodexRateLimits(rateLimits, updatedAt: timestamp) {
+                recordCodexLimit(parsed, into: &latestLimitsByID)
             }
 
             guard timestamp >= thirtyDayCutoff,
@@ -1111,8 +1110,41 @@ final class UsageReader {
             updatedAt: updatedAt,
             planType: value["plan_type"] as? String,
             primary: parseRateWindow(value["primary"] as? [String: Any]),
-            secondary: parseRateWindow(value["secondary"] as? [String: Any])
+            secondary: parseRateWindow(value["secondary"] as? [String: Any]),
+            limitId: value["limit_id"] as? String
         )
+    }
+
+    /// Keeps the newest snapshot for each rate-limit bucket, keyed by limit_id (falling
+    /// back to a single "codex" bucket for older logs that predate limit ids).
+    private func recordCodexLimit(_ parsed: CodexRateLimits, into byID: inout [String: CodexRateLimits]) {
+        let key = parsed.limitId ?? "codex"
+        if let existing = byID[key], existing.updatedAt >= parsed.updatedAt { return }
+        byID[key] = parsed
+    }
+
+    /// Codex reports several parallel rate-limit buckets, interleaved in the logs — the
+    /// main plan limit (limit_id "codex") alongside experimental ones like
+    /// "GPT-5.3-Codex-Spark". Keeping only the newest entry by timestamp made the menu
+    /// flip-flop to whichever bucket wrote last, often a brand-new near-empty one showing
+    /// 0%. Instead, keep the newest snapshot per limit_id, drop buckets that stopped being
+    /// reported (stale archived data), and show the most-constraining live one — the limit
+    /// you are closest to hitting, which is the point of a usage bar.
+    private func selectCodexLimits(_ byID: [String: CodexRateLimits]) -> CodexRateLimits? {
+        let all = Array(byID.values)
+        guard let newest = all.map(\.updatedAt).max() else { return nil }
+        let freshnessWindow: TimeInterval = 24 * 60 * 60
+        let fresh = all.filter { newest.timeIntervalSince($0.updatedAt) <= freshnessWindow }
+
+        func pressure(_ limit: CodexRateLimits) -> Double {
+            max(limit.primary?.usedPercent ?? 0, limit.secondary?.usedPercent ?? 0)
+        }
+
+        return fresh.max { lhs, rhs in
+            let lp = pressure(lhs), rp = pressure(rhs)
+            if lp != rp { return lp < rp }
+            return lhs.updatedAt < rhs.updatedAt
+        }
     }
 
     private func parseRateWindow(_ value: [String: Any]?) -> RateWindow? {
@@ -1318,7 +1350,6 @@ enum SnapshotCache {
 private enum MenuLayout {
     static let width: CGFloat = 360
     static let horizontalPadding: CGFloat = 12
-    static let valueLeading: CGFloat = 82
     static let railLeading: CGFloat = horizontalPadding
 }
 
@@ -1371,11 +1402,12 @@ private final class MenuLimitRowView: NSView {
     private let pacePercent: Double?
     private let fillColor: NSColor
 
+    /// `cluster` combines the reset time and the percent into one right-aligned block
+    /// (e.g. "resets in 4h  92%") — severity is carried only by the percent's color and
+    /// the rail fill, never by extra words, so the reset time is never hidden or replaced.
     init(
         label: String,
-        value: NSAttributedString,
-        trajectory: NSAttributedString? = nil,
-        detail: NSAttributedString,
+        cluster: NSAttributedString,
         usedPercent: Double?,
         pacePercent: Double?,
         fillColor: NSColor
@@ -1387,50 +1419,26 @@ private final class MenuLimitRowView: NSView {
         wantsLayer = true
 
         let labelView = NSTextField(labelWithString: label)
-        labelView.font = .systemFont(ofSize: 12.5, weight: .semibold)
+        labelView.font = .systemFont(ofSize: 12.5, weight: .bold)
         labelView.textColor = .labelColor
         labelView.translatesAutoresizingMaskIntoConstraints = false
 
-        let valueView = NSTextField(labelWithAttributedString: value)
-        valueView.alignment = .right
-        valueView.translatesAutoresizingMaskIntoConstraints = false
-
-        let detailView = NSTextField(labelWithAttributedString: detail)
-        detailView.alignment = .right
-        detailView.lineBreakMode = .byTruncatingTail
-        detailView.translatesAutoresizingMaskIntoConstraints = false
+        let clusterView = NSTextField(labelWithAttributedString: cluster)
+        clusterView.alignment = .right
+        clusterView.lineBreakMode = .byTruncatingTail
+        clusterView.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(labelView)
-        addSubview(valueView)
-        addSubview(detailView)
+        addSubview(clusterView)
 
         NSLayoutConstraint.activate([
             labelView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: MenuLayout.horizontalPadding),
             labelView.topAnchor.constraint(equalTo: topAnchor, constant: 5),
-            labelView.widthAnchor.constraint(equalToConstant: 60),
 
-            valueView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: MenuLayout.valueLeading),
-            valueView.topAnchor.constraint(equalTo: labelView.topAnchor),
-            valueView.widthAnchor.constraint(equalToConstant: 72),
-
-            detailView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -MenuLayout.horizontalPadding),
-            detailView.topAnchor.constraint(equalTo: labelView.topAnchor)
+            clusterView.leadingAnchor.constraint(greaterThanOrEqualTo: labelView.trailingAnchor, constant: 8),
+            clusterView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -MenuLayout.horizontalPadding),
+            clusterView.firstBaselineAnchor.constraint(equalTo: labelView.firstBaselineAnchor)
         ])
-
-        if let trajectory {
-            let trajectoryView = NSTextField(labelWithAttributedString: trajectory)
-            trajectoryView.lineBreakMode = .byTruncatingTail
-            trajectoryView.translatesAutoresizingMaskIntoConstraints = false
-            trajectoryView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-            addSubview(trajectoryView)
-            NSLayoutConstraint.activate([
-                trajectoryView.leadingAnchor.constraint(equalTo: valueView.trailingAnchor, constant: 9),
-                trajectoryView.firstBaselineAnchor.constraint(equalTo: valueView.firstBaselineAnchor),
-                detailView.leadingAnchor.constraint(greaterThanOrEqualTo: trajectoryView.trailingAnchor, constant: 8)
-            ])
-        } else {
-            detailView.leadingAnchor.constraint(greaterThanOrEqualTo: valueView.trailingAnchor, constant: 8).isActive = true
-        }
     }
 
     override var isFlipped: Bool { true }
@@ -2442,31 +2450,38 @@ Coco Usage Bar \(version) (\(build))
         guard let window, let percent = window.usedPercent else {
             return MenuLimitRowView(
                 label: label,
-                value: attributedValue(primary: "n/a"),
-                detail: attributedDetail(missingDetail),
+                cluster: clusterText(reset: attributedDetail(missingDetail), value: attributedValue(primary: "n/a")),
                 usedPercent: nil,
                 pacePercent: nil,
                 fillColor: providerColor
             )
         }
 
-        let detail = window.resetsAt.map { attributedResetDetail($0, referenceDate: referenceDate) }
+        let reset = window.resetsAt.map { attributedResetDetail($0, referenceDate: referenceDate) }
             ?? attributedDetail("reset n/a")
         let severity = usageSeverity(usedPercent: percent)
-        let pace = pacePercent(for: window, at: referenceDate)
+        let value = attributedValue(primary: formatPercent(percent), color: severityColor(severity))
         let row = MenuLimitRowView(
             label: label,
-            value: attributedValue(primary: formatPercent(percent), suffix: " used", color: severityColor(severity)),
-            trajectory: trajectoryLabel(for: window, usedPercent: percent, pacePercent: pace, referenceDate: referenceDate),
-            detail: detail,
+            cluster: clusterText(reset: reset, value: value),
             usedPercent: percent,
-            pacePercent: pace,
+            pacePercent: pacePercent(for: window, at: referenceDate),
             fillColor: severityColor(severity) ?? providerColor
         )
         if let resetsAt = window.resetsAt {
             row.toolTip = "Resets at \(dateTime(resetsAt))"
         }
         return row
+    }
+
+    /// Joins the (always-quiet) reset text and the (severity-colored) percent into one
+    /// right-aligned block — "resets in 4h  92%" — so severity is carried by color alone,
+    /// never by adding or replacing words.
+    private func clusterText(reset: NSAttributedString, value: NSAttributedString) -> NSAttributedString {
+        let result = NSMutableAttributedString(attributedString: reset)
+        result.append(NSAttributedString(string: "  ", attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .regular)]))
+        result.append(value)
+        return result
     }
 
     private enum UsageSeverity {
@@ -2489,37 +2504,6 @@ Coco Usage Bar \(version) (\(build))
         }
     }
 
-    /// Plain-language trajectory shown only when the window is trending toward its limit.
-    /// Guarded against just-reset windows (elapsed < 5%) and windows whose reset is already past.
-    private func trajectoryLabel(
-        for window: RateWindow,
-        usedPercent: Double,
-        pacePercent: Double?,
-        referenceDate: Date
-    ) -> NSAttributedString? {
-        guard let resetsAt = window.resetsAt, resetsAt > referenceDate else { return nil }
-        if usedPercent >= 90 {
-            return attributedTrajectory("limit before reset", color: .systemRed)
-        }
-        guard let pacePercent, pacePercent >= 5 else { return nil }
-
-        let projected = usedPercent / pacePercent * 100
-        if projected >= 100 {
-            return attributedTrajectory("limit before reset", color: .systemRed)
-        }
-        if projected >= 75 {
-            return attributedTrajectory("heading to limit", color: .systemOrange)
-        }
-        return nil
-    }
-
-    private func attributedTrajectory(_ text: String, color: NSColor) -> NSAttributedString {
-        NSAttributedString(string: text, attributes: [
-            .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
-            .foregroundColor: color
-        ])
-    }
-
     private func addView(_ view: NSView, to menu: NSMenu) {
         let item = NSMenuItem()
         item.view = view
@@ -2533,18 +2517,11 @@ Coco Usage Bar \(version) (\(build))
         return NSColor(calibratedRed: 0.42, green: 0.84, blue: 0.78, alpha: 1)
     }
 
-    private func attributedValue(primary: String, suffix: String? = nil, color: NSColor? = nil) -> NSAttributedString {
-        let result = NSMutableAttributedString(string: primary, attributes: [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 12.5, weight: .semibold),
+    private func attributedValue(primary: String, color: NSColor? = nil) -> NSAttributedString {
+        NSAttributedString(string: primary, attributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .bold),
             .foregroundColor: color ?? NSColor.labelColor
         ])
-        if let suffix {
-            result.append(NSAttributedString(string: suffix, attributes: [
-                .font: NSFont.systemFont(ofSize: 12, weight: .regular),
-                .foregroundColor: NSColor.secondaryLabelColor
-            ]))
-        }
-        return result
     }
 
     private func attributedDetail(_ value: String) -> NSAttributedString {
